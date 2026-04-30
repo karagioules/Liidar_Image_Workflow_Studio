@@ -275,6 +275,22 @@ button svg {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.advanced-fields {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #dce3ea;
+}
+
+.advanced-fields summary {
+  cursor: pointer;
+  color: #17202a;
+  font-weight: 750;
+}
+
+.inner-grid {
+  margin-top: 14px;
+}
+
 label {
   display: grid;
   gap: 7px;

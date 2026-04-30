@@ -142,8 +142,29 @@ describe("App", () => {
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
     await screen.findByDisplayValue("Ari");
     expect(screen.getByLabelText("Age category")).toBeInTheDocument();
-    expect(screen.getByLabelText("Face summary")).toBeInTheDocument();
-    expect(screen.getByLabelText("Negative notes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reference image paths")).toBeInTheDocument();
+    expect(screen.getByLabelText("Face summary")).not.toBeVisible();
+    await user.click(screen.getByText("Advanced profile controls"));
+    expect(screen.getByLabelText("Face summary")).toBeVisible();
+    expect(screen.getByLabelText("Negative notes")).toBeVisible();
+  });
+
+  it("creates a draft character profile from reference paths", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.clear(await screen.findByLabelText("Display name"));
+    await user.type(
+      screen.getByLabelText("Reference image paths"),
+      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png\nH:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-57-43.png"
+    );
+    await user.click(screen.getByRole("button", { name: /create draft from references/i }));
+
+    expect(screen.getByDisplayValue("Marianna")).toBeInTheDocument();
+    await user.click(screen.getByText("Advanced profile controls"));
+    expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("fictional adult face");
+    expect((screen.getByLabelText("Style notes") as HTMLTextAreaElement).value).toContain("reference-guided");
   });
 
   it("previews a believable still photo recipe", async () => {

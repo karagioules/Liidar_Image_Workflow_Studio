@@ -52,6 +52,49 @@ const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style",
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
 const sourceRights: SourceRights[] = ["synthetic", "owned", "licensed", "consented"];
 
+function referencePathsText(profile: CharacterProfile): string {
+  return profile.reference_images.join("\n");
+}
+
+function parseReferencePaths(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean);
+}
+
+function displayNameFromReferencePaths(paths: string[]): string {
+  const firstPath = paths[0] ?? "";
+  const parts = firstPath.split(/[\\/]+/).filter(Boolean);
+  const fileName = parts[parts.length - 1] ?? "New character";
+  const parent = parts[parts.length - 2];
+  if (parent && !["models", "ai faces", "free_posts", "may2025"].includes(parent.toLowerCase())) {
+    return parent.replace(/[_-]+/g, " ");
+  }
+  return fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+}
+
+function draftProfileFromReferences(profile: CharacterProfile): CharacterProfile {
+  const paths = profile.reference_images;
+  const referenceCount = paths.length;
+  const name = profile.display_name.trim() || displayNameFromReferencePaths(paths);
+  const referenceNote = referenceCount > 1 ? `${referenceCount} reference images` : "1 reference image";
+  return {
+    ...profile,
+    display_name: name,
+    age_category: profile.age_category || "adult_25_plus",
+    face_summary: `fictional adult face identity guided by ${referenceNote}; keep the same face structure, expression style, and natural skin texture`,
+    hair: "match the reference images for hair color, length, volume, and styling",
+    eyes: "match the reference images for eye shape and color",
+    skin_tone: "match the reference images for natural skin tone and texture",
+    body_shape: "match the reference images for believable adult body proportions and posture",
+    chest: "match the reference images for natural adult body shape",
+    grooming: "match the reference images; keep grooming realistic and consistent",
+    style_notes: "reference-guided believable still photo style with natural camera lighting, casual realism, and no overpolished AI look",
+    negative_notes: "plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike"
+  };
+}
+
 function labelize(value: string) {
   return value.replace(/_/g, " ");
 }
@@ -370,6 +413,13 @@ function CharactersPanel(props: {
 }) {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onChange, onSave } = props;
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
+  const updateReferences = (value: string) => onChange({ ...editingCharacter, reference_images: parseReferencePaths(value) });
+  const createDraft = () => {
+    if (!editingCharacter.reference_images.length) {
+      return;
+    }
+    onChange(draftProfileFromReferences(editingCharacter));
+  };
 
   return (
     <section className="panel split-panel">
@@ -398,15 +448,25 @@ function CharactersPanel(props: {
             {ageCategories.map((age) => <option key={age} value={age}>{labelize(age)}</option>)}
           </select>
         </label>
-        <Textarea label="Face summary" value={editingCharacter.face_summary} onChange={(value) => update("face_summary", value)} />
-        <Textarea label="Hair" value={editingCharacter.hair} onChange={(value) => update("hair", value)} />
-        <Textarea label="Eyes" value={editingCharacter.eyes} onChange={(value) => update("eyes", value)} />
-        <Textarea label="Skin tone" value={editingCharacter.skin_tone} onChange={(value) => update("skin_tone", value)} />
-        <Textarea label="Body shape" value={editingCharacter.body_shape} onChange={(value) => update("body_shape", value)} />
-        <Textarea label="Chest" value={editingCharacter.chest} onChange={(value) => update("chest", value)} />
-        <Textarea label="Grooming" value={editingCharacter.grooming} onChange={(value) => update("grooming", value)} />
-        <Textarea label="Style notes" value={editingCharacter.style_notes} onChange={(value) => update("style_notes", value)} />
-        <Textarea label="Negative notes" value={editingCharacter.negative_notes} onChange={(value) => update("negative_notes", value)} />
+        <Textarea label="Reference image paths" value={referencePathsText(editingCharacter)} onChange={updateReferences} />
+        <button type="button" className="secondary-button" onClick={createDraft} disabled={!editingCharacter.reference_images.length}>
+          <Search aria-hidden="true" />
+          Create draft from references
+        </button>
+        <details className="advanced-fields">
+          <summary>Advanced profile controls</summary>
+          <div className="form-grid inner-grid">
+            <Textarea label="Face summary" value={editingCharacter.face_summary} onChange={(value) => update("face_summary", value)} />
+            <Textarea label="Hair" value={editingCharacter.hair} onChange={(value) => update("hair", value)} />
+            <Textarea label="Eyes" value={editingCharacter.eyes} onChange={(value) => update("eyes", value)} />
+            <Textarea label="Skin tone" value={editingCharacter.skin_tone} onChange={(value) => update("skin_tone", value)} />
+            <Textarea label="Body shape" value={editingCharacter.body_shape} onChange={(value) => update("body_shape", value)} />
+            <Textarea label="Chest" value={editingCharacter.chest} onChange={(value) => update("chest", value)} />
+            <Textarea label="Grooming" value={editingCharacter.grooming} onChange={(value) => update("grooming", value)} />
+            <Textarea label="Style notes" value={editingCharacter.style_notes} onChange={(value) => update("style_notes", value)} />
+            <Textarea label="Negative notes" value={editingCharacter.negative_notes} onChange={(value) => update("negative_notes", value)} />
+          </div>
+        </details>
         <button type="submit" className="primary-button">
           <Save aria-hidden="true" />
           Save character
