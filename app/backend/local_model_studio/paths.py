@@ -19,6 +19,10 @@ class WorkspacePaths:
         return self.root / "config" / "workflows"
 
     @property
+    def training_dir(self) -> Path:
+        return self.root / "config" / "training"
+
+    @property
     def outputs_dir(self) -> Path:
         return self.root / "outputs" / "images"
 
