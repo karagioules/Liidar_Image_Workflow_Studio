@@ -69,7 +69,7 @@ try {
     $backendPathForCommand = $backendPath -replace "'", "''"
     $frontendPathForCommand = $frontendPath -replace "'", "''"
     $backendCommand = "Set-Location -LiteralPath '$backendPathForCommand'; $($backendPython.Command) -m uvicorn local_model_studio.main:app --reload --host 127.0.0.1 --port 8000"
-    $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --port 5173"
+    $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --port 5274"
 
     Start-Process powershell.exe -ArgumentList @(
         "-NoExit",
@@ -90,7 +90,7 @@ try {
     )
 
     Write-Host "Backend:  http://127.0.0.1:8000"
-    Write-Host "Frontend: http://127.0.0.1:5173"
+    Write-Host "Frontend: http://127.0.0.1:5274"
     Write-Host ""
     Write-Host "Two PowerShell windows were opened for logs. Close those windows to stop the servers."
     exit 0
