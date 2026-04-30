@@ -1,5 +1,41 @@
 $ErrorActionPreference = "Stop"
 
+function Test-PythonCanImportUvicorn {
+    param(
+        [string]$Exe,
+        [string[]]$Args = @()
+    )
+
+    & $Exe @Args -c "import uvicorn" *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Get-BackendPythonCommand {
+    param([string]$BackendPath)
+
+    $venvPython = Join-Path $BackendPath ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
+        if (Test-PythonCanImportUvicorn -Exe $venvPython) {
+            return @{
+                Command = "`"$venvPython`""
+                Label = $venvPython
+            }
+        }
+
+        throw "Backend virtual environment exists, but uvicorn is not installed or cannot be imported. Run backend setup first: cd `"$BackendPath`"; .\.venv\Scripts\python.exe -m pip install -r requirements.txt"
+    }
+
+    $pyLauncher = Get-Command "py" -ErrorAction SilentlyContinue
+    if ($null -ne $pyLauncher -and (Test-PythonCanImportUvicorn -Exe "py" -Args @("-3.12"))) {
+        return @{
+            Command = "py -3.12"
+            Label = "py -3.12"
+        }
+    }
+
+    throw "Backend Python environment is not ready. Expected $venvPython, or a py -3.12 environment that can import uvicorn. Run backend setup before launching Liidar."
+}
+
 try {
     $workspaceRoot = (Resolve-Path $PSScriptRoot).Path
     $backendPath = Join-Path $workspaceRoot "app\backend"
@@ -26,9 +62,13 @@ try {
         Write-Host ""
     }
 
+    $backendPython = Get-BackendPythonCommand -BackendPath $backendPath
+    Write-Host "Backend Python: $($backendPython.Label)"
+    Write-Host ""
+
     $backendPathForCommand = $backendPath -replace "'", "''"
     $frontendPathForCommand = $frontendPath -replace "'", "''"
-    $backendCommand = "Set-Location -LiteralPath '$backendPathForCommand'; py -3.12 -m uvicorn local_model_studio.main:app --reload --host 127.0.0.1 --port 8000"
+    $backendCommand = "Set-Location -LiteralPath '$backendPathForCommand'; $($backendPython.Command) -m uvicorn local_model_studio.main:app --reload --host 127.0.0.1 --port 8000"
     $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --port 5173"
 
     Start-Process powershell.exe -ArgumentList @(

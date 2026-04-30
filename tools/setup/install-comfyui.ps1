@@ -27,19 +27,25 @@ function Get-PythonCommand {
             return @{
                 Exe = "py"
                 Args = @("-3.12")
+                Label = "py -3.12 ($version)"
+                Path = $pyLauncher.Source
             }
         }
     }
 
     $python = Get-Command "python" -ErrorAction SilentlyContinue
     if ($null -ne $python) {
-        $version = & python --version 2>&1
+        $version = & python -c "import sys; print('%s.%s.%s' % sys.version_info[:3]); raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" 2>&1
         if ($LASTEXITCODE -eq 0) {
             return @{
                 Exe = "python"
                 Args = @()
+                Label = "python ($version)"
+                Path = $python.Source
             }
         }
+
+        throw "The python command on PATH is not Python 3.12 or newer. Found: $version. Install Python 3.12, or make py -3.12 available on PATH."
     }
 
     throw "Python was not found. Install Python 3.12, or make sure py/python is available on PATH."
@@ -64,6 +70,9 @@ try {
 
     Resolve-RequiredCommand -Name "git" -FriendlyName "Git" | Out-Null
     $pythonCommand = Get-PythonCommand
+    Write-Info "Selected Python: $($pythonCommand.Label)"
+    Write-Info "Python path: $($pythonCommand.Path)"
+    Write-Info ""
 
     Write-Info "Cloning ComfyUI into:"
     Write-Info "  $comfyUiPath"
