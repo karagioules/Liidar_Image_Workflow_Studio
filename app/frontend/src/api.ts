@@ -4,6 +4,7 @@ import type {
   DatasetScanRequest,
   GenerationJobResponse,
   GenerationRequest,
+  ImportReferenceImagesResponse,
   PathBrowserResponse,
   PromptRecipe,
   ReferenceAnalysisResponse,
@@ -16,11 +17,14 @@ import type {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers
-    },
+    headers: isFormData
+      ? init?.headers
+      : {
+          "Content-Type": "application/json",
+          ...init?.headers
+        },
     ...init
   });
 
@@ -50,6 +54,17 @@ export const api = {
       params.set("path", path.trim());
     }
     return request<PathBrowserResponse>(`/api/filesystem/browse?${params.toString()}`);
+  },
+  importReferenceImages: (files: File[]) => {
+    const body = new FormData();
+    for (const file of files) {
+      const relativePath = "webkitRelativePath" in file ? String(file.webkitRelativePath) : "";
+      body.append("files", file, relativePath || file.name);
+    }
+    return request<ImportReferenceImagesResponse>("/api/filesystem/import-references", {
+      method: "POST",
+      body
+    });
   },
   characters: () => request<CharacterProfile[]>("/api/characters"),
   analyzeReferences: (profile: CharacterProfile) =>

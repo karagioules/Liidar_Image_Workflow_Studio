@@ -365,9 +365,37 @@ textarea {
   align-items: end;
 }
 
+.picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.picker-button {
+  min-height: 42px;
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .inline-button {
   margin-top: 0;
   white-space: nowrap;
+}
+
+.inline-success {
+  padding: 10px;
+  border: 1px solid #b9e2cb;
+  border-radius: 8px;
+  background: #f1fbf5;
+  color: #116037;
 }
 
 .inline-error {
@@ -378,7 +406,18 @@ textarea {
   color: #8a1f2d;
 }
 
+.path-fallback summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 700;
+}
+
+.path-fallback .path-open-row {
+  margin-top: 10px;
+}
+
 .path-browser {
+  margin-top: 10px;
   border: 1px solid #dce3ea;
   border-radius: 8px;
   background: #ffffff;
