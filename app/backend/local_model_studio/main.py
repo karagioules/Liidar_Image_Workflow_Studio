@@ -112,7 +112,7 @@ def create_app(
                 detail=f"ComfyUI request failed: {exc}",
             ) from exc
         except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         return GenerationJobResponse(prompt_id=prompt_id, recipe=recipe)
 
     @app.post("/api/training/scan", response_model=DatasetScanReport)

@@ -68,3 +68,21 @@ def test_queue_prompt_raises_when_prompt_id_invalid() -> None:
 
     with pytest.raises(RuntimeError, match="prompt_id"):
         client.queue_prompt({"1": {"inputs": {}}})
+
+
+@respx.mock
+def test_queue_prompt_raises_runtime_error_for_invalid_json_response() -> None:
+    respx.post("http://127.0.0.1:8188/prompt").mock(return_value=Response(200, text="not json"))
+    client = ComfyClient("http://127.0.0.1:8188")
+
+    with pytest.raises(RuntimeError, match="ComfyUI returned an invalid response"):
+        client.queue_prompt({"1": {"inputs": {}}})
+
+
+@respx.mock
+def test_queue_prompt_raises_runtime_error_for_non_object_json_response() -> None:
+    respx.post("http://127.0.0.1:8188/prompt").mock(return_value=Response(200, json=["not", "object"]))
+    client = ComfyClient("http://127.0.0.1:8188")
+
+    with pytest.raises(RuntimeError, match="ComfyUI returned an invalid response"):
+        client.queue_prompt({"1": {"inputs": {}}})

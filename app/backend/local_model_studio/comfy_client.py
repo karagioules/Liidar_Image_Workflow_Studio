@@ -22,7 +22,14 @@ class ComfyClient:
         response = httpx.post(f"{self.base_url}/prompt", json={"prompt": workflow}, timeout=self.timeout)
         response.raise_for_status()
 
-        prompt_id = response.json().get("prompt_id")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("ComfyUI returned an invalid response.") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("ComfyUI returned an invalid response.")
+
+        prompt_id = payload.get("prompt_id")
         if not isinstance(prompt_id, str) or not prompt_id:
             raise RuntimeError("ComfyUI response did not include a valid prompt_id.")
 

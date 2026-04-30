@@ -172,6 +172,28 @@ def test_training_store_rejects_missing_completed_lora_path(tmp_path: Path) -> N
         store.register_completed_lora(saved.job_id, tmp_path / "missing.safetensors")
 
 
+def test_training_store_checks_missing_job_before_missing_completed_lora_path(
+    tmp_path: Path,
+) -> None:
+    store = TrainingStore(WorkspacePaths(tmp_path))
+
+    with pytest.raises(KeyError):
+        store.register_completed_lora("missing-job", tmp_path / "missing.safetensors")
+
+
+def test_training_store_rejects_invalid_completed_lora_suffix(tmp_path: Path) -> None:
+    dataset = tmp_path / "accepted"
+    dataset.mkdir()
+    config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    saved = store.save(config)
+    lora_path = tmp_path / "body.txt"
+    lora_path.write_text("artifact", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="LoRA artifact file must end with"):
+        store.register_completed_lora(saved.job_id, lora_path)
+
+
 def test_training_store_accepts_existing_completed_lora_file(tmp_path: Path) -> None:
     dataset = tmp_path / "accepted"
     dataset.mkdir()

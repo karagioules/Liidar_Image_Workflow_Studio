@@ -18,6 +18,11 @@ class FakeComfyClient:
         return "prompt-123"
 
 
+class FailingComfyClient:
+    def queue_prompt(self, workflow: dict) -> str:
+        raise RuntimeError("ComfyUI returned an invalid response.")
+
+
 def test_profile_crud(tmp_path: Path) -> None:
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
 
@@ -81,6 +86,19 @@ def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path)
     assert response.json()["recipe"]["seed"] == 7
     assert comfy.queued_workflow is not None
     assert comfy.queued_workflow["4"]["inputs"]["ckpt_name"] == "sdxl_base_1.0.safetensors"
+
+
+def test_generate_route_returns_503_for_comfy_runtime_error(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FailingComfyClient()))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+
+    response = client.post(
+        "/api/generate",
+        json={"character_id": "ari", "scene_prompt": "studio window light"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ComfyUI returned an invalid response."
 
 
 def test_missing_character_preview_and_generate_return_404(tmp_path: Path) -> None:
@@ -175,3 +193,46 @@ def test_register_lora_route_rejects_missing_file_and_accepts_safetensors(
 
     assert accepted.status_code == 200
     assert accepted.json()["completed_lora_path"] == str(lora_path)
+
+
+def test_register_lora_route_returns_404_for_missing_job_before_missing_file(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/training/missing-job/register-lora",
+        json={"lora_path": str(tmp_path / "missing.safetensors")},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Training job not found."
+
+
+def test_register_lora_route_rejects_invalid_lora_suffix(tmp_path: Path) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "ari_style",
+            },
+            "accepted_image_count": 1,
+        },
+    ).json()
+    invalid_lora_path = tmp_path / "ari_style.txt"
+    invalid_lora_path.write_text("fake", encoding="utf-8")
+
+    response = client.post(
+        f"/api/training/{job['job_id']}/register-lora",
+        json={"lora_path": str(invalid_lora_path)},
+    )
+
+    assert response.status_code == 400
+    assert "LoRA artifact file must end with" in response.json()["detail"]

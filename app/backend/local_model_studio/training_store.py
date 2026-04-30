@@ -9,6 +9,7 @@ from local_model_studio.paths import WorkspacePaths
 from local_model_studio.training_schemas import TrainingJobConfig
 
 SAFE_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+LORA_ARTIFACT_SUFFIXES = {".safetensors", ".pt", ".pth"}
 
 
 class TrainingStore:
@@ -40,11 +41,14 @@ class TrainingStore:
         return self._load_path(path)
 
     def register_completed_lora(self, job_id: str, lora_path: str | Path) -> TrainingJobConfig:
+        config = self.get(job_id)
         resolved_lora_path = Path(lora_path)
+        if resolved_lora_path.suffix.lower() not in LORA_ARTIFACT_SUFFIXES:
+            allowed_suffixes = ", ".join(sorted(LORA_ARTIFACT_SUFFIXES))
+            raise ValueError(f"LoRA artifact file must end with one of: {allowed_suffixes}.")
         if not resolved_lora_path.is_file():
             raise FileNotFoundError(f"LoRA artifact file does not exist: {resolved_lora_path}")
 
-        config = self.get(job_id)
         saved = config.model_copy(
             update={
                 "completed_lora_path": str(resolved_lora_path),
