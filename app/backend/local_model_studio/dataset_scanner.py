@@ -23,6 +23,8 @@ def scan_dataset(
     output_root: Path | None = None,
     detector: FaceDetector | None = None,
 ) -> DatasetScanReport:
+    _validate_face_policy(request)
+
     if request.dataset_type == "fictional_face_identity":
         if not request.character_id:
             raise ValueError("fictional_face_identity datasets require character_id")
@@ -147,9 +149,14 @@ def _face_rejection_reason(request: DatasetScanRequest, face_count: int) -> str 
         return "redaction not implemented safely yet"
     if request.dataset_type == "fictional_face_identity":
         return None
-    if request.face_policy == "reject_faces" and request.dataset_type in GENERIC_DATASET_TYPES and face_count > 0:
+    if request.dataset_type in GENERIC_DATASET_TYPES and face_count > 0:
         return f"detected {face_count} face(s); generic datasets must not preserve faces"
     return None
+
+
+def _validate_face_policy(request: DatasetScanRequest) -> None:
+    if request.face_policy == "body_part_crops_only" and request.dataset_type != "body_part":
+        raise ValueError("face_policy body_part_crops_only is only valid for body_part datasets")
 
 
 def _reject(

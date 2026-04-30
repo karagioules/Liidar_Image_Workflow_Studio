@@ -94,6 +94,34 @@ def test_scan_rejects_detected_faces(tmp_path: Path) -> None:
     assert Path(report.rejected[0].stored_path or "").exists()
 
 
+def test_body_part_crop_policy_is_invalid_for_style_dataset(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    make_image(source / "face.jpg", (255, 0, 0))
+
+    with pytest.raises(ValueError, match="body_part_crops_only"):
+        scan_dataset(
+            request(source, "style", face_policy="body_part_crops_only"),
+            output_root=tmp_path / "datasets",
+            detector=FaceDetector(),
+        )
+
+
+def test_body_shape_rejects_detected_faces_with_default_policy(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    make_image(source / "face.jpg", (255, 0, 0))
+
+    report = scan_dataset(
+        request(source, "body_shape"),
+        output_root=tmp_path / "datasets",
+        detector=FaceDetector(),
+    )
+
+    assert report.accepted_count == 0
+    assert report.rejected_count == 1
+
+
 def test_unavailable_detector_fails_closed_for_style_dataset(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -120,6 +148,21 @@ def test_body_part_can_scan_when_detector_unavailable(tmp_path: Path) -> None:
 
     assert report.accepted_count == 1
     assert report.warnings == ["face detector unavailable"]
+
+
+def test_body_part_crop_policy_can_scan_when_detector_unavailable(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    make_image(source / "crop.jpg", (255, 0, 0))
+
+    report = scan_dataset(
+        request(source, "body_part", face_policy="body_part_crops_only"),
+        output_root=tmp_path / "datasets",
+        detector=UnavailableDetector(),
+    )
+
+    assert report.accepted_count == 1
+    assert report.rejected_count == 0
 
 
 def test_fictional_face_identity_requires_character_and_rights(tmp_path: Path) -> None:
