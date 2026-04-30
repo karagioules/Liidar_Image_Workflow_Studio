@@ -51,6 +51,11 @@ export const api = {
     return request<PathBrowserResponse>(`/api/filesystem/browse?${params.toString()}`);
   },
   characters: () => request<CharacterProfile[]>("/api/characters"),
+  analyzeReferences: (profile: CharacterProfile) =>
+    request<CharacterProfile>("/api/characters/analyze-references", {
+      method: "POST",
+      body: JSON.stringify(profile)
+    }),
   saveCharacter: (profile: CharacterProfile) =>
     request<CharacterProfile>("/api/characters", {
       method: "POST",

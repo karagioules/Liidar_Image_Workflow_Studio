@@ -77,6 +77,22 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/characters/analyze-references")) {
+          return jsonResponse({
+            ...character,
+            display_name: "Marianna",
+            face_summary: "offline image analysis from 1 reference image; fictional adult face",
+            hair: "reference-inferred dark hair",
+            eyes: "reference-inferred eyes",
+            skin_tone: "warm natural skin tone",
+            body_shape: "reference-inferred adult body proportions",
+            chest: "reference-inferred natural adult body shape",
+            grooming: "reference-inferred grooming",
+            style_notes: "portrait-oriented local reference style",
+            reference_images: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"]
+          });
+        }
+
         if (url.endsWith("/api/generate/preview")) {
           return jsonResponse({
             positive: "believable still photo, golden hour balcony",
@@ -200,6 +216,24 @@ describe("App", () => {
 
     expect(screen.getByText("1 selected")).toBeInTheDocument();
     expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png").length).toBeGreaterThan(0);
+  });
+
+  it("analyzes selected references into an editable character draft", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.clear(await screen.findByLabelText("Display name"));
+    await user.type(
+      screen.getByLabelText("Reference image paths"),
+      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
+    );
+    await user.click(screen.getByRole("button", { name: /analyze references/i }));
+
+    expect(await screen.findByDisplayValue("Marianna")).toBeInTheDocument();
+    await user.click(screen.getByText("Advanced profile controls"));
+    expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("offline image analysis");
+    expect((screen.getByLabelText("Skin tone") as HTMLTextAreaElement).value).toContain("warm");
   });
 
   it("previews a believable still photo recipe", async () => {

@@ -487,6 +487,11 @@ textarea {
   gap: 10px;
 }
 
+.compact-actions .primary-button,
+.compact-actions .secondary-button {
+  margin-top: 0;
+}
+
 .recipe-box {
   margin-top: 18px;
   padding-top: 16px;

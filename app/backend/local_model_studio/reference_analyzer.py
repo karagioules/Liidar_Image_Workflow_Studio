@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from PIL import Image, ImageStat
+
+from local_model_studio.schemas import CharacterProfile, ReferenceAnalysisRequest
+
+
+NAME_SKIP_FOLDERS = {"ai faces", "free_posts", "may2025", "models", "reference", "references"}
+
+
+@dataclass(frozen=True)
+class ImageSignals:
+    width: int
+    height: int
+    red: float
+    green: float
+    blue: float
+    brightness: float
+    texture: float
+
+
+def analyze_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
+    paths = [Path(path) for path in request.reference_images]
+    signals = [_read_image_signals(path) for path in paths]
+    if not signals:
+        raise ValueError("At least one reference image is required.")
+
+    display_name = request.display_name.strip() or _display_name_from_paths(paths)
+    orientation = _orientation_note(signals)
+    warmth = _warmth_note(signals)
+    lighting = _lighting_note(signals)
+    texture = _texture_note(signals)
+    count = len(signals)
+    plural = "images" if count != 1 else "image"
+
+    return CharacterProfile(
+        id=request.id,
+        display_name=display_name,
+        age_category=request.age_category,
+        face_summary=(
+            f"offline image analysis from {count} reference {plural}; fictional adult face identity guided by the selected local images; "
+            "preserve recurring face structure, expression style, and natural asymmetry without matching any real person"
+        ),
+        hair="reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed",
+        eyes="reference-inferred eye shape and color; keep gaze and expression style consistent",
+        skin_tone=f"{warmth} natural skin tone inferred from local image color balance; keep skin texture believable",
+        body_shape="reference-inferred adult body proportions and posture; keep anatomy natural and physically plausible",
+        chest="reference-inferred natural adult body shape; avoid exaggerated or plastic-looking anatomy",
+        grooming="reference-inferred grooming and presentation; keep details realistic and consistent",
+        style_notes=(
+            f"offline image analysis: {orientation}, {lighting}, {texture}; reference-guided believable still photo style "
+            "with natural camera rendering and no overpolished AI look"
+        ),
+        negative_notes="plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike",
+        reference_images=[str(path) for path in paths],
+        lora_files=request.lora_files,
+        seed_strategy=request.seed_strategy,
+        locked_seed=request.locked_seed,
+    )
+
+
+def _read_image_signals(path: Path) -> ImageSignals:
+    if not path.exists():
+        raise FileNotFoundError(f"Reference image not found: {path}")
+    if not path.is_file():
+        raise ValueError(f"Reference path is not a file: {path}")
+
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        width, height = image.size
+        sampled = image.resize((64, 64))
+        stat = ImageStat.Stat(sampled)
+        red, green, blue = stat.mean
+        brightness = (red + green + blue) / 3
+        texture = sum(stat.stddev) / 3
+    return ImageSignals(width, height, red, green, blue, brightness, texture)
+
+
+def _display_name_from_paths(paths: list[Path]) -> str:
+    first = paths[0]
+    parent = first.parent.name
+    if parent and parent.lower() not in NAME_SKIP_FOLDERS:
+        return _humanize_name(parent)
+    return _humanize_name(first.stem)
+
+
+def _humanize_name(value: str) -> str:
+    cleaned = value.replace("_", " ").replace("-", " ").strip()
+    return " ".join(part.capitalize() for part in cleaned.split()) or "New Character"
+
+
+def _orientation_note(signals: list[ImageSignals]) -> str:
+    portrait = sum(1 for signal in signals if signal.height > signal.width * 1.08)
+    landscape = sum(1 for signal in signals if signal.width > signal.height * 1.08)
+    if portrait >= landscape and portrait > 0:
+        return "portrait-oriented references"
+    if landscape > 0:
+        return "landscape-oriented references"
+    return "square or balanced-frame references"
+
+
+def _warmth_note(signals: list[ImageSignals]) -> str:
+    red = sum(signal.red for signal in signals) / len(signals)
+    blue = sum(signal.blue for signal in signals) / len(signals)
+    if red - blue > 8:
+        return "warm"
+    if blue - red > 8:
+        return "cool"
+    return "neutral"
+
+
+def _lighting_note(signals: list[ImageSignals]) -> str:
+    brightness = sum(signal.brightness for signal in signals) / len(signals)
+    if brightness >= 190:
+        return "bright high-key lighting"
+    if brightness >= 95:
+        return "natural mid-key lighting"
+    return "low-key lighting"
+
+
+def _texture_note(signals: list[ImageSignals]) -> str:
+    texture = sum(signal.texture for signal in signals) / len(signals)
+    if texture >= 55:
+        return "high visual texture"
+    if texture >= 22:
+        return "moderate natural texture"
+    return "clean low-noise texture"

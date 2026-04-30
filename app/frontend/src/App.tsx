@@ -423,6 +423,8 @@ function CharactersPanel(props: {
   onSave: () => void;
 }) {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onChange, onSave } = props;
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
   const updateReferences = (paths: string[]) => onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
   const createDraft = () => {
@@ -430,6 +432,20 @@ function CharactersPanel(props: {
       return;
     }
     onChange(draftProfileFromReferences(editingCharacter));
+  };
+  const analyzeReferences = async () => {
+    if (!editingCharacter.reference_images.length) {
+      return;
+    }
+    try {
+      setIsAnalyzing(true);
+      setAnalysisError("");
+      onChange(await api.analyzeReferences(editingCharacter));
+    } catch (caught) {
+      setAnalysisError(caught instanceof Error ? caught.message : "Unable to analyze reference images.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -460,10 +476,17 @@ function CharactersPanel(props: {
           </select>
         </label>
         <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
-        <button type="button" className="secondary-button" onClick={createDraft} disabled={!editingCharacter.reference_images.length}>
-          <Search aria-hidden="true" />
-          Create draft from references
-        </button>
+        {analysisError ? <div className="inline-error">{analysisError}</div> : null}
+        <div className="actions compact-actions">
+          <button type="button" className="primary-button" onClick={() => void analyzeReferences()} disabled={!editingCharacter.reference_images.length || isAnalyzing}>
+            <Search aria-hidden="true" />
+            {isAnalyzing ? "Analyzing" : "Analyze references"}
+          </button>
+          <button type="button" className="secondary-button" onClick={createDraft} disabled={!editingCharacter.reference_images.length}>
+            <Search aria-hidden="true" />
+            Create draft from references
+          </button>
+        </div>
         <details className="advanced-fields">
           <summary>Advanced profile controls</summary>
           <div className="form-grid inner-grid">

@@ -41,6 +41,16 @@ class CharacterProfile(BaseModel):
         return value
 
 
+class ReferenceAnalysisRequest(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    display_name: str = Field(default="", max_length=80)
+    age_category: AdultAgeCategory = "adult_25_plus"
+    reference_images: list[str] = Field(min_length=1)
+    lora_files: list[str] = Field(default_factory=list)
+    seed_strategy: SeedStrategy = "vary"
+    locked_seed: int | None = None
+
+
 class GenerationRequest(BaseModel):
     character_id: str
     mode: GenerationMode = "portrait"

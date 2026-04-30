@@ -13,6 +13,7 @@ from local_model_studio.file_browser import browse_filesystem
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
 from local_model_studio.prompt_builder import build_prompt_recipe
+from local_model_studio.reference_analyzer import analyze_references
 from local_model_studio.runtime_check import build_runtime_status
 from local_model_studio.schemas import (
     CharacterProfile,
@@ -20,6 +21,7 @@ from local_model_studio.schemas import (
     GenerationRequest,
     PathBrowserResponse,
     PromptRecipe,
+    ReferenceAnalysisRequest,
     RuntimeStatus,
 )
 from local_model_studio.training_config import build_training_config, check_trainer_status
@@ -90,6 +92,15 @@ def create_app(
     def save_character(profile: CharacterProfile) -> CharacterProfile:
         try:
             return profiles.save(profile)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/characters/analyze-references", response_model=CharacterProfile)
+    def analyze_character_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
+        try:
+            return analyze_references(request)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
