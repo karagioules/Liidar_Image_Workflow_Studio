@@ -36,6 +36,13 @@ export interface ReferenceAnalysisImage {
   tone: string;
   texture: string;
   caption: string | null;
+  body_attributes: {
+    coverage: string;
+    chest_visibility: string;
+    pose_framing: string;
+    confidence: number;
+    evidence: string;
+  };
 }
 
 export interface ReferenceAnalysisResponse extends CharacterProfile {

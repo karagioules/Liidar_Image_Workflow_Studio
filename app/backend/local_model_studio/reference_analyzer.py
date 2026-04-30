@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageStat
 
-from local_model_studio.schemas import ReferenceAnalysisImage, ReferenceAnalysisRequest, ReferenceAnalysisResponse
+from local_model_studio.schemas import BodyAttributeCues, ReferenceAnalysisImage, ReferenceAnalysisRequest, ReferenceAnalysisResponse
 
 
 NAME_SKIP_FOLDERS = {"ai faces", "free_posts", "may2025", "models", "reference", "references"}
@@ -41,6 +41,7 @@ def analyze_references(
     caption_text = _caption_text(captions)
     vision_prefix = f"local vision model caption: {caption_text}; " if caption_text else ""
     analysis_images = _analysis_images(paths, signals, captions)
+    body_cues = [image.body_attributes for image in analysis_images]
     warnings = _analysis_warnings(signals, captions)
     consistency_score = _consistency_score(signals, captions)
 
@@ -57,7 +58,7 @@ def analyze_references(
         eyes=_fit_text(f"{vision_prefix}reference-inferred eye shape and color; keep gaze and expression style consistent", 160),
         skin_tone=f"{warmth} natural skin tone inferred from local image color balance; keep skin texture believable",
         body_shape="reference-inferred adult body proportions and posture; keep anatomy natural and physically plausible",
-        chest="reference-inferred natural adult body shape; avoid exaggerated or plastic-looking anatomy",
+        chest=_chest_note(body_cues),
         grooming=_fit_text(f"{vision_prefix}reference-inferred grooming and presentation; keep details realistic and consistent", 240),
         style_notes=_fit_text(
             f"offline image analysis: {orientation}, {lighting}, {texture}; {vision_prefix}reference-guided believable still photo style "
@@ -105,9 +106,79 @@ def _analysis_images(
             tone=_warmth_note([signal]),
             texture=_texture_note([signal]),
             caption=captions[index].strip() if captions and index < len(captions) and captions[index].strip() else None,
+            body_attributes=_body_attribute_cues(signal, captions[index] if captions and index < len(captions) else ""),
         )
         for index, (path, signal) in enumerate(zip(paths, signals, strict=True))
     ]
+
+
+def _body_attribute_cues(signal: ImageSignals, caption: str | None) -> BodyAttributeCues:
+    caption_text = (caption or "").strip().lower()
+    coverage, coverage_evidence, coverage_confidence = _coverage_from_caption(caption_text)
+    chest_visibility = _chest_visibility_from_caption(caption_text, coverage)
+    pose_framing = _pose_framing(signal, caption_text)
+    evidence = coverage_evidence or "caption does not provide clear clothing or coverage evidence"
+    confidence = coverage_confidence
+    if "full" in pose_framing or "upper body" in pose_framing:
+        confidence = min(100, confidence + 8)
+    return BodyAttributeCues(
+        coverage=coverage,
+        chest_visibility=chest_visibility,
+        pose_framing=pose_framing,
+        confidence=confidence,
+        evidence=_fit_text(evidence, 240),
+    )
+
+
+def _coverage_from_caption(caption: str) -> tuple[str, str, int]:
+    if _contains_any(caption, ["nude", "naked", "topless", "bare chest"]):
+        return "uncovered or explicit", "caption mentions uncovered body terms", 76
+    if _contains_any(caption, ["bikini", "swimsuit", "swimwear", "lingerie", "underwear", "bra"]):
+        keyword = _first_present(caption, ["bikini", "swimsuit", "swimwear", "lingerie", "underwear", "bra"])
+        return "swimwear" if keyword in {"bikini", "swimsuit", "swimwear"} else "underwear or lingerie", f"caption mentions {keyword}", 72
+    if _contains_any(caption, ["shirt", "dress", "top", "jacket", "hoodie", "sweater", "clothed", "wearing"]):
+        keyword = _first_present(caption, ["shirt", "dress", "top", "jacket", "hoodie", "sweater", "clothed", "wearing"])
+        return "clothed", f"caption mentions {keyword}", 62
+    return "unclear", "", 35
+
+
+def _chest_visibility_from_caption(caption: str, coverage: str) -> str:
+    if coverage == "uncovered or explicit":
+        return "visible, requires manual review"
+    if coverage in {"swimwear", "underwear or lingerie"}:
+        return "covered by swimwear or clothing"
+    if _contains_any(caption, ["close up", "upper body", "portrait"]):
+        return "partly visible through framing"
+    return "not clearly described"
+
+
+def _pose_framing(signal: ImageSignals, caption: str) -> str:
+    if _contains_any(caption, ["full body", "standing", "on the beach", "bikini"]):
+        return "full or upper body visible"
+    if _contains_any(caption, ["portrait", "close up", "headshot"]):
+        return "portrait or close framing"
+    if signal.height > signal.width * 1.08:
+        return "portrait frame, body visibility depends on crop"
+    return "unclear framing"
+
+
+def _chest_note(cues: list[BodyAttributeCues]) -> str:
+    coverages = {cue.coverage for cue in cues}
+    if "uncovered or explicit" in coverages:
+        return "reference cues indicate visible chest anatomy; use manual review for exact attributes and keep results natural"
+    if "swimwear" in coverages:
+        return "reference cues indicate swimwear-covered chest/body shape; infer only broad natural proportions unless manually specified"
+    if "underwear or lingerie" in coverages:
+        return "reference cues indicate underwear or lingerie coverage; infer only broad natural proportions unless manually specified"
+    return "reference-inferred natural adult body shape; avoid exaggerated or plastic-looking anatomy"
+
+
+def _contains_any(value: str, needles: list[str]) -> bool:
+    return any(needle in value for needle in needles)
+
+
+def _first_present(value: str, needles: list[str]) -> str:
+    return next((needle for needle in needles if needle in value), needles[0])
 
 
 def _analysis_warnings(signals: list[ImageSignals], captions: list[str] | None) -> list[str]:

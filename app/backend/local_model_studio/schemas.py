@@ -51,6 +51,14 @@ class ReferenceAnalysisRequest(BaseModel):
     locked_seed: int | None = None
 
 
+class BodyAttributeCues(BaseModel):
+    coverage: str = Field(max_length=80)
+    chest_visibility: str = Field(max_length=120)
+    pose_framing: str = Field(max_length=120)
+    confidence: int = Field(ge=0, le=100)
+    evidence: str = Field(max_length=240)
+
+
 class ReferenceAnalysisImage(BaseModel):
     path: str
     file_name: str
@@ -61,6 +69,7 @@ class ReferenceAnalysisImage(BaseModel):
     tone: str
     texture: str
     caption: str | None = None
+    body_attributes: BodyAttributeCues
 
 
 class ReferenceAnalysisResponse(CharacterProfile):

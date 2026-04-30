@@ -112,7 +112,14 @@ describe("App", () => {
                 brightness: "natural mid-key lighting",
                 tone: "warm",
                 texture: "moderate natural texture",
-                caption: "a woman in a white shirt and denim shorts"
+                caption: "a woman in a white shirt and red bikini on the beach",
+                body_attributes: {
+                  coverage: "swimwear",
+                  chest_visibility: "covered by swimwear or clothing",
+                  pose_framing: "full or upper body visible",
+                  confidence: 72,
+                  evidence: "caption mentions bikini"
+                }
               }
             ]
           });
@@ -311,7 +318,9 @@ describe("App", () => {
 
     expect(await screen.findByDisplayValue("Marianna")).toBeInTheDocument();
     expect(screen.getByText("76")).toBeInTheDocument();
-    expect(screen.getByText("a woman in a white shirt and denim shorts")).toBeInTheDocument();
+    expect(screen.getByText("a woman in a white shirt and red bikini on the beach")).toBeInTheDocument();
+    expect(screen.getByText("swimwear")).toBeInTheDocument();
+    expect(screen.getByText("covered by swimwear or clothing")).toBeInTheDocument();
     expect(screen.getByText("Add 2-4 more references for stronger identity consistency.")).toBeInTheDocument();
     await user.click(screen.getByText("Advanced profile controls"));
     expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("offline image analysis");

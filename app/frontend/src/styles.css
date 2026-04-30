@@ -648,6 +648,39 @@ textarea {
   line-height: 1.35;
 }
 
+.body-cue-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.body-cue-list div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: #eef7f8;
+}
+
+.body-cue-list dt {
+  color: #607083;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.body-cue-list dd {
+  margin: 2px 0 0;
+  color: #17202a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.cue-evidence {
+  color: #4f6475;
+  font-size: 0.84rem;
+}
+
 .readiness-list {
   display: flex;
   flex-wrap: wrap;

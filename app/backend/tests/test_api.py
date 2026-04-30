@@ -221,6 +221,38 @@ def test_analyze_references_includes_local_vision_caption_when_available(tmp_pat
     assert body["analysis_images"][0]["caption"] == "a woman with dark wavy hair in a white shirt"
 
 
+def test_analyze_references_adds_body_attribute_cues_from_caption(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    reference = source / "beach.png"
+    Image.new("RGB", (880, 1168), color=(225, 205, 188)).save(reference)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: ["a woman in a white shirt and red bikini on the beach"]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "marianna",
+            "display_name": "",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(reference)],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    cues = body["analysis_images"][0]["body_attributes"]
+    assert cues["coverage"] == "swimwear"
+    assert cues["chest_visibility"] == "covered by swimwear or clothing"
+    assert cues["pose_framing"] == "full or upper body visible"
+    assert "bikini" in cues["evidence"]
+    assert "swimwear" in body["chest"]
+
+
 def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(tmp_path: Path) -> None:
     source = tmp_path / "Models" / "Marianna"
     source.mkdir(parents=True)

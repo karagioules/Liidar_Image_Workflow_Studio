@@ -976,6 +976,13 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
                 <strong>{image.file_name}</strong>
                 <span>{image.width} x {image.height} · {image.orientation}</span>
                 {image.caption ? <p>{image.caption}</p> : null}
+                <dl className="body-cue-list">
+                  <div><dt>Coverage</dt><dd>{image.body_attributes.coverage}</dd></div>
+                  <div><dt>Chest visibility</dt><dd>{image.body_attributes.chest_visibility}</dd></div>
+                  <div><dt>Framing</dt><dd>{image.body_attributes.pose_framing}</dd></div>
+                  <div><dt>Confidence</dt><dd>{image.body_attributes.confidence}%</dd></div>
+                </dl>
+                <p className="cue-evidence">{image.body_attributes.evidence}</p>
               </div>
             </article>
           ))}
