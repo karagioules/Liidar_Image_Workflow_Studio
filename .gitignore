@@ -16,5 +16,7 @@ outputs/
 datasets/
 training-runs/
 logs/
+.backend.pid
+.frontend.pid
 config/characters/*.json
 !config/characters/.gitkeep
