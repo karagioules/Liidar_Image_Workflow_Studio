@@ -216,8 +216,15 @@ button svg {
   align-items: center;
   gap: 8px;
   margin-top: 16px;
-  color: #166534;
   font-weight: 650;
+}
+
+.inline-status.ok {
+  color: #166534;
+}
+
+.inline-status.warning {
+  color: #8a5a00;
 }
 
 .warning-list {

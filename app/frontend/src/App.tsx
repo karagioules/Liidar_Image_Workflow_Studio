@@ -1,4 +1,4 @@
-import { Activity, Camera, CheckCircle2, ClipboardList, Cpu, Play, RefreshCcw, Save, Search, SlidersHorizontal, UserRound } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, Play, RefreshCcw, Save, Search, SlidersHorizontal, UserRound } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -351,8 +351,8 @@ function RuntimePanel({ runtime }: { runtime: RuntimeStatus | null }) {
         <Metric label="GPU" value={runtime?.gpu_names.join(", ") || "No GPU reported"} />
         <Metric label="AMD driver" value={runtime?.amd_driver_version ?? "Not detected"} />
       </div>
-      <div className="inline-status">
-        <CheckCircle2 aria-hidden="true" />
+      <div className={`inline-status ${runtime?.comfyui_path_exists ? "ok" : "warning"}`}>
+        {runtime?.comfyui_path_exists ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
         <span>ComfyUI path {runtime?.comfyui_path_exists ? "found" : "not found"}</span>
       </div>
       {runtime?.warnings.length ? <WarningList warnings={runtime.warnings} /> : null}
