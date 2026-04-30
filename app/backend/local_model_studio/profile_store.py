@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from local_model_studio.paths import WorkspacePaths
 from local_model_studio.schemas import CharacterProfile
+
+SAFE_PROFILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class ProfileStore:
@@ -43,10 +46,12 @@ class ProfileStore:
         path.unlink()
 
     def _path_for(self, profile_id: str) -> Path:
-        safe_id = "".join(char for char in profile_id if char.isalnum() or char in {"-", "_"})
-        if not safe_id:
-            raise ValueError("Profile id must contain safe filename characters.")
-        return self.paths.characters_dir / f"{safe_id}.json"
+        if not SAFE_PROFILE_ID_RE.fullmatch(profile_id):
+            raise ValueError(
+                "Profile id must be non-empty and contain only letters, numbers, "
+                "hyphen, or underscore."
+            )
+        return self.paths.characters_dir / f"{profile_id}.json"
 
     def _load_path(self, path: Path) -> CharacterProfile:
         data = json.loads(path.read_text(encoding="utf-8"))

@@ -48,3 +48,45 @@ def test_list_profiles_sorts_by_display_name(tmp_path: Path) -> None:
     names = [profile.display_name for profile in store.list()]
 
     assert names == ["Alpha", "Zeta"]
+
+
+def test_rejects_unsafe_profile_id(tmp_path: Path) -> None:
+    store = ProfileStore(WorkspacePaths(tmp_path))
+
+    with pytest.raises(ValueError, match="Profile id"):
+        store.get("a/b")
+
+
+def test_overwrite_preserves_created_at_and_updates_updated_at(tmp_path: Path) -> None:
+    store = ProfileStore(WorkspacePaths(tmp_path))
+    saved = store.save(make_profile("Original"))
+
+    overwritten = store.save(saved.model_copy(update={"display_name": "Updated"}))
+
+    assert overwritten.id == saved.id
+    assert overwritten.created_at == saved.created_at
+    assert overwritten.updated_at > saved.updated_at
+
+
+def test_get_missing_profile_raises_key_error(tmp_path: Path) -> None:
+    store = ProfileStore(WorkspacePaths(tmp_path))
+
+    with pytest.raises(KeyError):
+        store.get("missing")
+
+
+def test_delete_missing_profile_raises_key_error(tmp_path: Path) -> None:
+    store = ProfileStore(WorkspacePaths(tmp_path))
+
+    with pytest.raises(KeyError):
+        store.delete("missing")
+
+
+def test_delete_removes_saved_profile(tmp_path: Path) -> None:
+    store = ProfileStore(WorkspacePaths(tmp_path))
+    saved = store.save(make_profile())
+
+    store.delete(saved.id)
+
+    with pytest.raises(KeyError):
+        store.get(saved.id)
