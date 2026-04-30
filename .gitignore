@@ -13,6 +13,8 @@ models/
 *.pt
 *.pth
 outputs/
+datasets/
+training-runs/
 logs/
 config/characters/*.json
 !config/characters/.gitkeep
