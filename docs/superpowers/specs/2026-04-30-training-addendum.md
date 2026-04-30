@@ -39,6 +39,9 @@ Initial dataset types:
 - **style**
   Lighting, wardrobe, camera, or creator-content aesthetic references.
 
+- **fictional_face_identity**
+  AI-generated or otherwise owned fictional adult face references for one character. This dataset type is separate from generic body/style training and is allowed to preserve a fictional face identity when the user confirms the images are synthetic, owned, or consented.
+
 Each dataset stores:
 
 - Name.
@@ -49,7 +52,27 @@ Each dataset stores:
 - Duplicate count.
 - Face-policy mode.
 - Captions/tags.
+- Source rights label: synthetic, owned, licensed, or consented.
 - Created timestamp.
+
+## Fictional Face Identity References
+
+The app should support face references created in Grok, Sozee, or similar generators when the user wants a fictional character to keep the same face.
+
+This is not the same as generic body/style training. Face identity references:
+
+- Belong to one fictional adult character profile.
+- Require a source-rights label.
+- Are not mixed into generic body/style datasets.
+- Can be used by reference-guidance workflows first.
+- Can later be used for fictional-character LoRA training if the local trainer backend supports it.
+
+The UI should make this separation obvious:
+
+- **Character Face Pack:** preserves one fictional character's AI-generated face.
+- **Body/Style Dataset:** learns generic body, pose, wardrobe, grooming, lighting, or composition traits and rejects faces by default.
+
+The app must not present real-person face cloning as a supported workflow.
 
 ## Training Strategy
 
@@ -102,5 +125,6 @@ Training module verification must include:
 - Unsupported file ignored.
 - Face-containing image rejected when detection is available.
 - Captions contain generic body/style tags and no identity names.
+- Fictional face identity imports require source-rights metadata and stay associated with one character profile.
 - Training config includes dataset path, output path, base model path, LoRA name, resolution, repeats, batch size, and epoch/step settings.
 - Trainer status reports missing backend clearly instead of failing silently.

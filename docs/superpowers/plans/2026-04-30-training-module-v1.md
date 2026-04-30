@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add local dataset ingestion and trainer preparation for generic adult body/style LoRAs while preventing face cloning.
+**Goal:** Add local dataset ingestion and trainer preparation for generic adult body/style LoRAs while also supporting owned AI-generated fictional face identity references.
 
 **Architecture:** Add backend modules for dataset scanning, face-safety policy, caption generation, training config generation, and external trainer command execution. Store sanitized datasets under `datasets/` and metadata under `config/training/`. Frontend training controls are added after the backend API exists.
 
@@ -12,7 +12,7 @@
 
 ## File Structure
 
-- Create `app/backend/local_model_studio/training_schemas.py`: dataset, scan, caption, trainer config, and job status models.
+- Create `app/backend/local_model_studio/training_schemas.py`: dataset, scan, caption, source-rights, trainer config, and job status models.
 - Create `app/backend/local_model_studio/dataset_scanner.py`: recursive folder scan, hashing, extension filtering, safe copy layout.
 - Create `app/backend/local_model_studio/face_safety.py`: face detection abstraction with fail-closed behavior when detector is unavailable.
 - Create `app/backend/local_model_studio/caption_builder.py`: generic body/style captions with no identity names.
@@ -24,6 +24,12 @@
 - Later modify `app/backend/local_model_studio/main.py` to expose training routes.
 - Later modify frontend files to add Training UI.
 - Modify `.gitignore` to ignore `datasets/`, `training-runs/`, and generated LoRA outputs.
+
+## Dataset Mode Rules
+
+- `body_part`, `body_shape`, `pose`, and `style` datasets are generic training data. They reject faces by default and must not preserve identity.
+- `fictional_face_identity` datasets are character-specific face reference packs. They require a `character_id` and a source-rights label such as `synthetic`, `owned`, `licensed`, or `consented`.
+- Real-person cloning is not a supported dataset mode.
 
 ## Training Task A: Dataset Ingestion and Face-Safety Scan
 
@@ -133,11 +139,35 @@ def test_scan_rejects_detected_faces(tmp_path: Path) -> None:
 Implementation notes:
 
 - Use Pillow for image validation and copy only files that Pillow can open.
-- Define `DatasetType = Literal["body_part", "body_shape", "pose", "style"]`.
+- Define `DatasetType = Literal["body_part", "body_shape", "pose", "style", "fictional_face_identity"]`.
 - Define `FacePolicy = Literal["reject_faces", "redact_faces", "body_part_crops_only"]`.
+- Define `SourceRights = Literal["synthetic", "owned", "licensed", "consented"]`.
 - V1 can implement `redact_faces` as rejection with a warning until redaction is implemented safely.
+- `fictional_face_identity` imports require `character_id` and `source_rights`; other dataset types can omit `character_id`.
 - Use deterministic dataset IDs from `uuid4().hex`.
 - Write one `.txt` caption beside each accepted image.
+
+Additional face identity tests:
+
+```python
+import pytest
+
+from local_model_studio.dataset_scanner import scan_dataset
+from local_model_studio.paths import WorkspacePaths
+from local_model_studio.training_schemas import DatasetScanRequest
+
+
+def test_fictional_face_identity_requires_character_and_rights(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(ValueError, match="character"):
+        scan_dataset(
+            WorkspacePaths(tmp_path),
+            DatasetScanRequest(name="face pack", source_folder=str(source), dataset_type="fictional_face_identity"),
+            detector=NoFaceDetector(),
+        )
+```
 
 Verification:
 
@@ -253,6 +283,8 @@ After Training Tasks A and B pass:
 - Extend the frontend with a Training page/section:
   - folder path input.
   - dataset type select.
+  - character select when dataset type is fictional face identity.
+  - source-rights select for face identity packs.
   - face policy select.
   - scan button.
   - accepted/rejected/duplicate counts.
@@ -261,6 +293,6 @@ After Training Tasks A and B pass:
 
 ## Self-Review
 
-- Spec coverage: This plan implements the user's requirement to feed hundreds or thousands of body/style images as generic training knowledge while preventing face replication.
+- Spec coverage: This plan implements the user's requirement to feed hundreds or thousands of body/style images as generic training knowledge while preventing real-person face replication, and it supports owned AI-generated fictional face packs for character consistency.
 - Placeholder scan: The plan contains no placeholder work items.
 - Scope check: The implementation is split into ingestion safety and trainer adapter tasks so the app can safely accept folders before attempting long-running training.
