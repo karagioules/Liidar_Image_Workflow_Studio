@@ -58,6 +58,10 @@ describe("App", () => {
           return jsonResponse([character]);
         }
 
+        if (url.endsWith("/api/characters") && method === "POST") {
+          return jsonResponse(JSON.parse(String(init?.body)));
+        }
+
         if (url.includes("/api/filesystem/browse")) {
           return jsonResponse({
             current_path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna",
@@ -199,6 +203,16 @@ describe("App", () => {
     expect(screen.getByLabelText("Negative notes")).toBeVisible();
   });
 
+  it("keeps reference actions disabled until images are selected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+
+    expect(screen.getByRole("button", { name: /analyze references/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /create draft from references/i })).toBeDisabled();
+  });
+
   it("creates a draft character profile from reference paths", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -248,6 +262,21 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /clear selected/i }));
     expect(screen.getByText("0 selected")).toBeInTheDocument();
+  });
+
+  it("saves a completed character profile", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /new character/i }));
+    await user.type(screen.getByLabelText("Display name"), "Nadia");
+    await user.click(screen.getByText("Advanced profile controls"));
+    await user.type(screen.getByLabelText("Face summary"), "fictional adult face with soft features");
+    await user.click(screen.getByRole("button", { name: /save character/i }));
+
+    expect(await screen.findByText("Character saved.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /nadia/i })).toBeInTheDocument();
   });
 
   it("analyzes selected references into an editable character draft", async () => {
