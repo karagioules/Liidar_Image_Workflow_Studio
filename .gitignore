@@ -13,6 +13,7 @@ models/
 *.pt
 *.pth
 outputs/
+inputs/
 datasets/
 training-runs/
 logs/

@@ -81,10 +81,9 @@ describe("App", () => {
           });
         }
 
-        if (url.includes("/api/filesystem/import-references")) {
+        if (url.includes("/api/filesystem/select-references")) {
           return jsonResponse({
-            imported_paths: ["H:\\DevWork\\Win_Apps\\Liidar\\inputs\\reference_images\\batch\\picked.png"],
-            skipped_files: []
+            selected_paths: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\picked.png"]
           });
         }
 
@@ -254,15 +253,15 @@ describe("App", () => {
     expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png").length).toBeGreaterThan(0);
   });
 
-  it("imports reference images from the Windows picker control", async () => {
+  it("selects reference images from the native Windows picker control", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.upload(screen.getByLabelText("Selected reference image files"), new File(["image"], "picked.png", { type: "image/png" }));
+    await user.click(screen.getByRole("button", { name: /select images/i }));
 
-    expect(await screen.findByText("1 image imported.")).toBeInTheDocument();
-    expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\inputs\\reference_images\\batch\\picked.png").length).toBeGreaterThan(0);
+    expect(await screen.findByText("1 image selected.")).toBeInTheDocument();
+    expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\picked.png").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /analyze references/i })).toBeEnabled();
   });
 

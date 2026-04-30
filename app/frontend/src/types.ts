@@ -67,9 +67,8 @@ export interface PathBrowserResponse {
   entries: PathBrowserEntry[];
 }
 
-export interface ImportReferenceImagesResponse {
-  imported_paths: string[];
-  skipped_files: string[];
+export interface SelectedReferenceImagesResponse {
+  selected_paths: string[];
 }
 
 export interface GenerationRequest {

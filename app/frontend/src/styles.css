@@ -375,16 +375,6 @@ textarea {
   min-height: 42px;
 }
 
-.hidden-file-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .inline-button {
   margin-top: 0;
   white-space: nowrap;

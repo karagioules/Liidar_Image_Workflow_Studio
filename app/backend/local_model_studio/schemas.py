@@ -114,9 +114,8 @@ class PathBrowserResponse(BaseModel):
     entries: list[PathBrowserEntry]
 
 
-class ImportReferenceImagesResponse(BaseModel):
-    imported_paths: list[str]
-    skipped_files: list[str] = Field(default_factory=list)
+class SelectedReferenceImagesResponse(BaseModel):
+    selected_paths: list[str]
 
 
 class GenerationJobResponse(BaseModel):

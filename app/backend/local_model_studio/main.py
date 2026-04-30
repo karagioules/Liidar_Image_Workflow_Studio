@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from collections.abc import Iterable
 from pathlib import Path
-from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
 from pydantic import BaseModel, Field
 
 from local_model_studio.comfy_client import ComfyClient
@@ -23,12 +21,12 @@ from local_model_studio.schemas import (
     CharacterProfile,
     GenerationJobResponse,
     GenerationRequest,
-    ImportReferenceImagesResponse,
     PathBrowserResponse,
     PromptRecipe,
     ReferenceAnalysisRequest,
     ReferenceAnalysisResponse,
     RuntimeStatus,
+    SelectedReferenceImagesResponse,
 )
 from local_model_studio.training_config import build_training_config, check_trainer_status
 from local_model_studio.training_schemas import (
@@ -99,34 +97,12 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/filesystem/import-references", response_model=ImportReferenceImagesResponse)
-    async def import_reference_images(files: list[UploadFile] = File(...)) -> ImportReferenceImagesResponse:
-        imported_paths: list[str] = []
-        skipped_files: list[str] = []
-        batch_dir = _reference_import_dir(workspace_paths.root)
-        batch_dir.mkdir(parents=True, exist_ok=True)
-
-        for upload in files:
-            original_name = upload.filename or "reference"
-            if Path(original_name).suffix.lower() not in IMAGE_SUFFIXES:
-                skipped_files.append(original_name)
-                continue
-
-            destination = _unique_upload_path(batch_dir, original_name)
-            try:
-                content = await upload.read()
-                destination.write_bytes(content)
-                _validate_uploaded_image(destination)
-            except ValueError:
-                destination.unlink(missing_ok=True)
-                skipped_files.append(original_name)
-                continue
-            imported_paths.append(str(destination))
-
-        if not imported_paths and skipped_files:
-            raise HTTPException(status_code=400, detail="No supported image files were selected.")
-
-        return ImportReferenceImagesResponse(imported_paths=imported_paths, skipped_files=skipped_files)
+    @app.post("/api/filesystem/select-references", response_model=SelectedReferenceImagesResponse)
+    def select_reference_images(mode: str = Query(pattern="^(files|folder)$")) -> SelectedReferenceImagesResponse:
+        try:
+            return SelectedReferenceImagesResponse(selected_paths=_select_reference_paths(mode))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/characters", response_model=list[CharacterProfile])
     def list_characters() -> list[CharacterProfile]:
@@ -238,35 +214,47 @@ def _get_profile_or_404(store: ProfileStore, profile_id: str) -> CharacterProfil
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _reference_import_dir(workspace_root: Path) -> Path:
-    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    return workspace_root / "inputs" / "reference_images" / f"{timestamp}-{uuid4().hex[:8]}"
-
-
-def _unique_upload_path(root: Path, original_name: str) -> Path:
-    safe_parts = [_safe_filename(part) for part in Path(original_name.replace("\\", "/")).parts]
-    filename = safe_parts[-1] if safe_parts else f"reference-{uuid4().hex}.png"
-    if Path(filename).suffix.lower() not in IMAGE_SUFFIXES:
-        filename = f"{Path(filename).stem}.png"
-    candidate = root / filename
-    counter = 2
-    while candidate.exists():
-        candidate = root / f"{candidate.stem}-{counter}{candidate.suffix}"
-        counter += 1
-    return candidate
-
-
-def _safe_filename(value: str) -> str:
-    safe = "".join(char if char.isalnum() or char in "._- " else "_" for char in value).strip(" .")
-    return safe or f"reference-{uuid4().hex}"
-
-
-def _validate_uploaded_image(path: Path) -> None:
+def _select_reference_paths(mode: str) -> list[str]:
     try:
-        with Image.open(path) as image:
-            image.verify()
+        from tkinter import Tk, filedialog
     except Exception as exc:
-        raise ValueError(f"Unsupported image file: {path.name}") from exc
+        raise RuntimeError("Windows file picker is not available in this Python environment.") from exc
+
+    try:
+        root = Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+    except Exception as exc:
+        raise RuntimeError(f"Unable to open Windows file picker: {exc}") from exc
+
+    try:
+        if mode == "files":
+            selected = filedialog.askopenfilenames(
+                title="Select reference images",
+                filetypes=[
+                    ("Image files", "*.avif *.bmp *.jpeg *.jpg *.png *.webp"),
+                    ("All files", "*.*"),
+                ],
+            )
+            return _supported_image_paths(Path(path) for path in selected)
+
+        folder = filedialog.askdirectory(title="Select reference image folder")
+        if not folder:
+            return []
+        return _supported_image_paths(path for path in Path(folder).rglob("*") if path.is_file())
+    except Exception as exc:
+        raise RuntimeError(f"Unable to open Windows file picker: {exc}") from exc
+    finally:
+        root.destroy()
+
+
+def _supported_image_paths(paths: Iterable[Path]) -> list[str]:
+    selected: list[str] = []
+    for path in paths:
+        candidate = Path(path)
+        if candidate.is_file() and candidate.suffix.lower() in IMAGE_SUFFIXES:
+            selected.append(str(candidate))
+    return sorted(dict.fromkeys(selected))
 
 
 app = create_app()

@@ -4,11 +4,11 @@ import type {
   DatasetScanRequest,
   GenerationJobResponse,
   GenerationRequest,
-  ImportReferenceImagesResponse,
   PathBrowserResponse,
   PromptRecipe,
   ReferenceAnalysisResponse,
   RuntimeStatus,
+  SelectedReferenceImagesResponse,
   TrainerStatus,
   TrainingConfigRequest,
   TrainingJobConfig
@@ -55,17 +55,10 @@ export const api = {
     }
     return request<PathBrowserResponse>(`/api/filesystem/browse?${params.toString()}`);
   },
-  importReferenceImages: (files: File[]) => {
-    const body = new FormData();
-    for (const file of files) {
-      const relativePath = "webkitRelativePath" in file ? String(file.webkitRelativePath) : "";
-      body.append("files", file, relativePath || file.name);
-    }
-    return request<ImportReferenceImagesResponse>("/api/filesystem/import-references", {
-      method: "POST",
-      body
-    });
-  },
+  selectReferenceImages: (mode: "files" | "folder") =>
+    request<SelectedReferenceImagesResponse>(`/api/filesystem/select-references?${new URLSearchParams({ mode }).toString()}`, {
+      method: "POST"
+    }),
   characters: () => request<CharacterProfile[]>("/api/characters"),
   analyzeReferences: (profile: CharacterProfile) =>
     request<ReferenceAnalysisResponse>("/api/characters/analyze-references?vision=true", {

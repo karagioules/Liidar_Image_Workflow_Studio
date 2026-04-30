@@ -773,13 +773,11 @@ function TrainingPanel(props: {
 }
 
 function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (paths: string[]) => void }) {
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const folderInputRef = React.useRef<HTMLInputElement>(null);
   const [browsePath, setBrowsePath] = useState(paths[0] ? parentPath(paths[0]) : "");
   const [browser, setBrowser] = useState<PathBrowserResponse | null>(null);
   const [browserError, setBrowserError] = useState("");
   const [isBrowsing, setIsBrowsing] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
 
   const openPath = async (path = browsePath) => {
@@ -801,24 +799,23 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
   const addVisibleFiles = () => onChange(uniquePaths([...paths, ...visibleFilePaths]));
   const removePath = (path: string) => onChange(paths.filter((candidate) => candidate !== path));
   const clearPaths = () => onChange([]);
-  const importFiles = async (files: FileList | null, input: HTMLInputElement) => {
-    if (!files?.length) {
-      return;
-    }
+  const selectReferences = async (mode: "files" | "folder") => {
     try {
-      setIsImporting(true);
+      setIsSelecting(true);
       setBrowserError("");
       setImportMessage("");
-      const result = await api.importReferenceImages(Array.from(files));
-      onChange(uniquePaths([...paths, ...result.imported_paths]));
-      const importedCount = result.imported_paths.length;
-      const skipped = result.skipped_files.length ? ` ${result.skipped_files.length} unsupported file(s) skipped.` : "";
-      setImportMessage(`${importedCount} image${importedCount === 1 ? "" : "s"} imported.${skipped}`);
+      const result = await api.selectReferenceImages(mode);
+      if (!result.selected_paths.length) {
+        setImportMessage("No images selected.");
+        return;
+      }
+      onChange(uniquePaths([...paths, ...result.selected_paths]));
+      const selectedCount = result.selected_paths.length;
+      setImportMessage(`${selectedCount} image${selectedCount === 1 ? "" : "s"} selected.`);
     } catch (caught) {
-      setBrowserError(caught instanceof Error ? caught.message : "Unable to import selected images.");
+      setBrowserError(caught instanceof Error ? caught.message : "Unable to select reference images.");
     } finally {
-      setIsImporting(false);
-      input.value = "";
+      setIsSelecting(false);
     }
   };
 
@@ -831,30 +828,11 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
         </div>
       </div>
       <div className="picker-actions">
-        <input
-          ref={fileInputRef}
-          aria-label="Selected reference image files"
-          className="hidden-file-input"
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(event) => void importFiles(event.currentTarget.files, event.currentTarget)}
-        />
-        <input
-          ref={folderInputRef}
-          aria-label="Selected reference image folder"
-          className="hidden-file-input"
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(event) => void importFiles(event.currentTarget.files, event.currentTarget)}
-          {...{ webkitdirectory: "", directory: "" }}
-        />
-        <button type="button" className="secondary-button picker-button" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+        <button type="button" className="secondary-button picker-button" onClick={() => void selectReferences("files")} disabled={isSelecting}>
           <Plus aria-hidden="true" />
           Select images
         </button>
-        <button type="button" className="secondary-button picker-button" onClick={() => folderInputRef.current?.click()} disabled={isImporting}>
+        <button type="button" className="secondary-button picker-button" onClick={() => void selectReferences("folder")} disabled={isSelecting}>
           <FolderOpen aria-hidden="true" />
           Select folder
         </button>

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
 
+import local_model_studio.main as main_module
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -146,25 +146,17 @@ def test_file_browser_serves_image_thumbnail(tmp_path: Path) -> None:
     assert len(response.content) > 100
 
 
-def test_import_reference_images_from_picker_upload(tmp_path: Path) -> None:
-    image_bytes = BytesIO()
-    Image.new("RGB", (32, 32), color="blue").save(image_bytes, format="PNG")
-    image_bytes.seek(0)
+def test_select_reference_images_uses_native_picker_result(tmp_path: Path, monkeypatch) -> None:
+    reference = tmp_path / "picked.png"
+    Image.new("RGB", (32, 32), color="blue").save(reference)
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    monkeypatch.setattr(main_module, "_select_reference_paths", lambda mode: [str(reference)])
 
-    response = client.post(
-        "/api/filesystem/import-references",
-        files=[("files", ("picked.png", image_bytes, "image/png"))],
-    )
+    response = client.post("/api/filesystem/select-references", params={"mode": "files"})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["skipped_files"] == []
-    assert len(body["imported_paths"]) == 1
-    imported = Path(body["imported_paths"][0])
-    assert imported.exists()
-    assert imported.name == "picked.png"
-    assert tmp_path / "inputs" / "reference_images" in imported.parents
+    assert body["selected_paths"] == [str(reference)]
 
 
 def test_analyze_references_returns_character_draft_from_local_images(tmp_path: Path) -> None:
