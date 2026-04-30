@@ -18,6 +18,8 @@ def build_training_config(
     dataset_path = Path(request.dataset_path)
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset path does not exist: {dataset_path}")
+    if not dataset_path.is_dir():
+        raise ValueError(f"dataset directory must be a directory: {dataset_path}")
 
     if not request.base_model_path.strip():
         raise ValueError("base_model_path must be non-empty.")

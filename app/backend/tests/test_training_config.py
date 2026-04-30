@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,15 @@ def test_training_config_rejects_missing_dataset_path(tmp_path: Path) -> None:
     request = _request(tmp_path, tmp_path / "missing")
 
     with pytest.raises(FileNotFoundError, match="Dataset path"):
+        build_training_config(request, accepted_image_count=3)
+
+
+def test_training_config_rejects_dataset_path_that_is_file(tmp_path: Path) -> None:
+    dataset = tmp_path / "accepted.txt"
+    dataset.write_text("not a directory", encoding="utf-8")
+    request = _request(tmp_path, dataset)
+
+    with pytest.raises(ValueError, match="dataset directory"):
         build_training_config(request, accepted_image_count=3)
 
 
@@ -135,16 +145,64 @@ def test_training_store_save_get_list_and_register_completed_lora(tmp_path: Path
     dataset.mkdir()
     config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
     store = TrainingStore(WorkspacePaths(tmp_path))
+    lora_path = tmp_path / "loras" / "body.safetensors"
+    lora_path.parent.mkdir()
+    lora_path.write_text("artifact", encoding="utf-8")
 
     saved = store.save(config)
     loaded = store.get(saved.job_id)
     jobs = store.list()
-    completed = store.register_completed_lora(
-        saved.job_id, tmp_path / "loras" / "body.safetensors"
-    )
+    completed = store.register_completed_lora(saved.job_id, lora_path)
 
     assert (tmp_path / "config" / "training" / f"{saved.job_id}.json").exists()
     assert loaded == saved
     assert [job.job_id for job in jobs] == [saved.job_id]
-    assert completed.completed_lora_path == str(tmp_path / "loras" / "body.safetensors")
-    assert store.get(saved.job_id).completed_lora_path == str(tmp_path / "loras" / "body.safetensors")
+    assert completed.completed_lora_path == str(lora_path)
+    assert store.get(saved.job_id).completed_lora_path == str(lora_path)
+
+
+def test_training_store_rejects_missing_completed_lora_path(tmp_path: Path) -> None:
+    dataset = tmp_path / "accepted"
+    dataset.mkdir()
+    config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    saved = store.save(config)
+
+    with pytest.raises(FileNotFoundError, match="LoRA artifact"):
+        store.register_completed_lora(saved.job_id, tmp_path / "missing.safetensors")
+
+
+def test_training_store_accepts_existing_completed_lora_file(tmp_path: Path) -> None:
+    dataset = tmp_path / "accepted"
+    dataset.mkdir()
+    config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    saved = store.save(config)
+    lora_path = tmp_path / "body.safetensors"
+    lora_path.write_text("artifact", encoding="utf-8")
+
+    completed = store.register_completed_lora(saved.job_id, lora_path)
+
+    assert completed.completed_lora_path == str(lora_path)
+
+
+def test_training_store_overwrite_preserves_created_at_and_advances_updated_at(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "accepted"
+    dataset.mkdir()
+    config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    saved = store.save(
+        config.model_copy(
+            update={
+                "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+            }
+        )
+    )
+
+    overwritten = store.save(saved.model_copy(update={"lora_name": "updated_name"}))
+
+    assert overwritten.created_at == saved.created_at
+    assert overwritten.updated_at > saved.updated_at
