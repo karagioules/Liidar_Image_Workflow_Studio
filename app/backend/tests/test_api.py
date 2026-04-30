@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from local_model_studio.main import create_app
+from local_model_studio.paths import WorkspacePaths
+
+
+class FakeComfyClient:
+    def __init__(self) -> None:
+        self.queued_workflow: dict | None = None
+
+    def queue_prompt(self, workflow: dict) -> str:
+        self.queued_workflow = workflow
+        return "prompt-123"
+
+
+def test_profile_crud(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    created = client.post(
+        "/api/characters",
+        json={
+            "id": "ari",
+            "display_name": "Ari",
+            "face_summary": "soft oval face",
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["id"] == "ari"
+
+    listed = client.get("/api/characters")
+    assert listed.status_code == 200
+    assert [profile["id"] for profile in listed.json()] == ["ari"]
+
+    fetched = client.get("/api/characters/ari")
+    assert fetched.status_code == 200
+    assert fetched.json()["display_name"] == "Ari"
+
+    deleted = client.delete("/api/characters/ari")
+    assert deleted.status_code == 204
+
+    missing = client.get("/api/characters/ari")
+    assert missing.status_code == 404
+
+
+def test_generate_preview_returns_recipe_containing_scene_prompt(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+
+    response = client.post(
+        "/api/generate/preview",
+        json={
+            "character_id": "ari",
+            "mode": "portrait",
+            "scene_prompt": "golden hour balcony",
+            "seed": 42,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "golden hour balcony" in response.json()["positive"]
+    assert response.json()["seed"] == 42
+
+
+def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path) -> None:
+    comfy = FakeComfyClient()
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=comfy))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+
+    response = client.post(
+        "/api/generate",
+        json={"character_id": "ari", "scene_prompt": "studio window light", "seed": 7},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["prompt_id"] == "prompt-123"
+    assert response.json()["recipe"]["seed"] == 7
+    assert comfy.queued_workflow is not None
+    assert comfy.queued_workflow["4"]["inputs"]["ckpt_name"] == "sdxl_base_1.0.safetensors"
+
+
+def test_missing_character_preview_and_generate_return_404(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FakeComfyClient()))
+
+    preview = client.post("/api/generate/preview", json={"character_id": "missing"})
+    generate = client.post("/api/generate", json={"character_id": "missing"})
+
+    assert preview.status_code == 404
+    assert generate.status_code == 404
+
+
+def test_training_scan_route_accepts_body_part_image(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    Image.new("RGB", (8, 8), color="red").save(source / "sample.png")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/training/scan",
+        json={
+            "name": "hands",
+            "source_folder": str(source),
+            "dataset_type": "body_part",
+            "face_policy": "body_part_crops_only",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["accepted_count"] == 1
+    assert response.json()["accepted"][0]["stored_path"]
+
+
+def test_training_config_route_persists_job_for_accepted_directory(tmp_path: Path) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "ari_style",
+            },
+            "accepted_image_count": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dataset_id"] == "dataset-1"
+    assert body["accepted_image_count"] == 1
+    assert (tmp_path / "config" / "training" / f"{body['job_id']}.json").is_file()
+
+
+def test_register_lora_route_rejects_missing_file_and_accepts_safetensors(
+    tmp_path: Path,
+) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "ari_style",
+            },
+            "accepted_image_count": 1,
+        },
+    ).json()
+
+    missing = client.post(
+        f"/api/training/{job['job_id']}/register-lora",
+        json={"lora_path": str(tmp_path / "missing.safetensors")},
+    )
+    assert missing.status_code == 400
+
+    lora_path = tmp_path / "ari_style.safetensors"
+    lora_path.write_bytes(b"fake")
+    accepted = client.post(
+        f"/api/training/{job['job_id']}/register-lora",
+        json={"lora_path": str(lora_path)},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json()["completed_lora_path"] == str(lora_path)
