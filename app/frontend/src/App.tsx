@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, FileImage, Folder, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, Folder, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -12,6 +12,7 @@ import type {
   PathBrowserResponse,
   PromptRecipe,
   QualityPreset,
+  ReferenceAnalysisResponse,
   RuntimeStatus,
   SourceRights,
   TrainerStatus,
@@ -38,6 +39,13 @@ const blankCharacter: CharacterProfile = {
   seed_strategy: "vary",
   locked_seed: null
 };
+
+function newCharacterProfile(): CharacterProfile {
+  return {
+    ...blankCharacter,
+    id: `character-${Date.now()}`
+  };
+}
 
 const tabs: Array<{ id: TabId; label: string; icon: typeof Activity }> = [
   { id: "runtime", label: "Runtime status", icon: Cpu },
@@ -326,6 +334,10 @@ function App() {
             selectedCharacterId={selectedCharacterId}
             editingCharacter={editingCharacter}
             onSelect={setSelectedCharacterId}
+            onNew={() => {
+              setSelectedCharacterId("");
+              setEditingCharacter(newCharacterProfile());
+            }}
             onChange={setEditingCharacter}
             onSave={saveCharacter}
           />
@@ -419,14 +431,19 @@ function CharactersPanel(props: {
   selectedCharacterId: string;
   editingCharacter: CharacterProfile;
   onSelect: (id: string) => void;
+  onNew: () => void;
   onChange: (profile: CharacterProfile) => void;
   onSave: () => void;
 }) {
-  const { characters, selectedCharacterId, editingCharacter, onSelect, onChange, onSave } = props;
+  const { characters, selectedCharacterId, editingCharacter, onSelect, onNew, onChange, onSave } = props;
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [analysis, setAnalysis] = useState<ReferenceAnalysisResponse | null>(null);
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
-  const updateReferences = (paths: string[]) => onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
+  const updateReferences = (paths: string[]) => {
+    setAnalysis(null);
+    onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
+  };
   const createDraft = () => {
     if (!editingCharacter.reference_images.length) {
       return;
@@ -441,6 +458,7 @@ function CharactersPanel(props: {
       setIsAnalyzing(true);
       setAnalysisError("");
       const analyzed = await api.analyzeReferences(editingCharacter);
+      setAnalysis(analyzed);
       onChange({ ...editingCharacter, ...analyzed, reference_images: analyzed.reference_images ?? editingCharacter.reference_images });
     } catch (caught) {
       setAnalysisError(caught instanceof Error ? caught.message : "Unable to analyze reference images.");
@@ -453,6 +471,10 @@ function CharactersPanel(props: {
     <section className="panel split-panel">
       <div className="list-rail">
         <h2>Characters</h2>
+        <button type="button" className="secondary-button rail-action" onClick={onNew}>
+          <Plus aria-hidden="true" />
+          New character
+        </button>
         {characters.map((character) => (
           <button
             type="button"
@@ -478,6 +500,7 @@ function CharactersPanel(props: {
         </label>
         <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
         {analysisError ? <div className="inline-error">{analysisError}</div> : null}
+        {analysis ? <ReferenceAnalysisPanel analysis={analysis} /> : <CharacterReadiness profile={editingCharacter} />}
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={() => void analyzeReferences()} disabled={!editingCharacter.reference_images.length || isAnalyzing}>
             <Search aria-hidden="true" />
@@ -770,7 +793,10 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
   };
 
   const addPath = (path: string) => onChange(uniquePaths([...paths, path]));
+  const visibleFilePaths = browser?.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path) ?? [];
+  const addVisibleFiles = () => onChange(uniquePaths([...paths, ...visibleFilePaths]));
   const removePath = (path: string) => onChange(paths.filter((candidate) => candidate !== path));
+  const clearPaths = () => onChange([]);
 
   return (
     <section className="path-module" aria-label="Reference image path module">
@@ -795,17 +821,25 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
         <div className="path-browser">
           <div className="path-browser-bar">
             <strong>{browser.current_path ?? "Local roots"}</strong>
-            {browser.parent_path ? (
-              <button type="button" className="mini-button" onClick={() => void openPath(browser.parent_path ?? "")}>
-                Up
-              </button>
-            ) : null}
+            <div className="mini-actions">
+              {visibleFilePaths.length ? (
+                <button type="button" className="mini-button" onClick={addVisibleFiles}>
+                  <Plus aria-hidden="true" />
+                  Add visible files
+                </button>
+              ) : null}
+              {browser.parent_path ? (
+                <button type="button" className="mini-button" onClick={() => void openPath(browser.parent_path ?? "")}>
+                  Up
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="path-entry-list">
             {browser.entries.map((entry) => (
               <div className="path-entry" key={entry.path}>
                 <div>
-                  {entry.kind === "file" ? <FileImage aria-hidden="true" /> : <Folder aria-hidden="true" />}
+                  {entry.kind === "file" ? <img className="path-thumb mini-thumb" src={api.thumbnailUrl(entry.path)} alt="" /> : <Folder aria-hidden="true" />}
                   <span>{entry.name}</span>
                 </div>
                 {entry.kind === "file" ? (
@@ -825,8 +859,17 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
       ) : null}
       <div className="selected-paths">
         {paths.length ? (
+          <div className="selected-paths-bar">
+            <strong>{paths.length} selected</strong>
+            <button type="button" className="mini-button" onClick={clearPaths}>
+              Clear selected
+            </button>
+          </div>
+        ) : null}
+        {paths.length ? (
           paths.map((path) => (
             <div className="selected-path" key={path}>
+              <img className="path-thumb" src={api.thumbnailUrl(path)} alt="" />
               <span>{path}</span>
               <button type="button" className="icon-mini-button" onClick={() => removePath(path)} aria-label={`Remove ${path}`}>
                 <X aria-hidden="true" />
@@ -841,6 +884,54 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
         <summary>Paste paths</summary>
         <Textarea label="Reference image paths" value={paths.join("\n")} onChange={(value) => onChange(uniquePaths(parseReferencePaths(value)))} />
       </details>
+    </section>
+  );
+}
+
+function CharacterReadiness({ profile }: { profile: CharacterProfile }) {
+  const checks: Array<[string, boolean]> = [
+    ["References", profile.reference_images.length >= 1],
+    ["Name", Boolean(profile.display_name.trim())],
+    ["Profile", Boolean(profile.face_summary.trim() || profile.style_notes.trim())]
+  ];
+  const passed = checks.filter(([, ok]) => ok).length;
+  return (
+    <section className="analysis-panel compact-panel">
+      <div className="analysis-score">
+        <strong>{passed}/{checks.length}</strong>
+        <span>Setup readiness</span>
+      </div>
+      <div className="readiness-list">
+        {checks.map(([label, ok]) => (
+          <span className={ok ? "ready" : "pending"} key={label}>{label}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisResponse }) {
+  return (
+    <section className="analysis-panel">
+      <div className="analysis-score">
+        <strong>{analysis.consistency_score}</strong>
+        <span>Consistency score</span>
+      </div>
+      <div className="analysis-body">
+        <div className="analysis-image-grid">
+          {analysis.analysis_images.map((image) => (
+            <article className="analysis-image-card" key={image.path}>
+              <img src={api.thumbnailUrl(image.path)} alt="" />
+              <div>
+                <strong>{image.file_name}</strong>
+                <span>{image.width} x {image.height} · {image.orientation}</span>
+                {image.caption ? <p>{image.caption}</p> : null}
+              </div>
+            </article>
+          ))}
+        </div>
+        {analysis.analysis_warnings.length ? <WarningList warnings={analysis.analysis_warnings} /> : null}
+      </div>
     </section>
   );
 }

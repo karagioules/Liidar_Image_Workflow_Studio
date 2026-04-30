@@ -131,6 +131,20 @@ def test_file_browser_lists_folders_and_supported_images(tmp_path: Path) -> None
     assert ("notes.txt", "file") not in entries
 
 
+def test_file_browser_serves_image_thumbnail(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    reference = source / "sozee.png"
+    Image.new("RGB", (800, 1200), color="blue").save(reference)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get("/api/filesystem/thumbnail", params={"path": str(reference)})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert len(response.content) > 100
+
+
 def test_analyze_references_returns_character_draft_from_local_images(tmp_path: Path) -> None:
     source = tmp_path / "Models" / "Marianna"
     source.mkdir(parents=True)
@@ -157,6 +171,10 @@ def test_analyze_references_returns_character_draft_from_local_images(tmp_path: 
     assert "offline image analysis" in body["face_summary"]
     assert "portrait-oriented" in body["style_notes"]
     assert "warm" in body["skin_tone"]
+    assert body["consistency_score"] >= 60
+    assert body["analysis_images"][0]["width"] == 800
+    assert body["analysis_images"][0]["orientation"] == "portrait"
+    assert body["analysis_warnings"]
 
 
 def test_analyze_references_includes_local_vision_caption_when_available(tmp_path: Path) -> None:
@@ -186,6 +204,7 @@ def test_analyze_references_includes_local_vision_caption_when_available(tmp_pat
     assert "local vision model caption" in body["face_summary"]
     assert "dark wavy hair" in body["hair"]
     assert "white shirt" in body["style_notes"]
+    assert body["analysis_images"][0]["caption"] == "a woman with dark wavy hair in a white shirt"
 
 
 def test_training_scan_route_accepts_body_part_image(tmp_path: Path) -> None:

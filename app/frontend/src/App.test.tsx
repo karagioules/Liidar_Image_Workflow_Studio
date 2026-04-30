@@ -89,7 +89,22 @@ describe("App", () => {
             chest: "reference-inferred natural adult body shape",
             grooming: "reference-inferred grooming",
             style_notes: "portrait-oriented local reference style",
-            reference_images: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"]
+            reference_images: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"],
+            consistency_score: 76,
+            analysis_warnings: ["Add 2-4 more references for stronger identity consistency."],
+            analysis_images: [
+              {
+                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png",
+                file_name: "sozee_2026-04-30_11-47-30.png",
+                width: 800,
+                height: 1200,
+                orientation: "portrait",
+                brightness: "natural mid-key lighting",
+                tone: "warm",
+                texture: "moderate natural texture",
+                caption: "a woman in a white shirt and denim shorts"
+              }
+            ]
           });
         }
 
@@ -214,8 +229,25 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Open path" }));
     await user.click(await screen.findByRole("button", { name: /add sozee_2026-04-30_11-47-30.png/i }));
 
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
     expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png").length).toBeGreaterThan(0);
+  });
+
+  it("starts a new character and supports bulk reference actions", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /new character/i }));
+    expect(screen.getByLabelText("Display name")).toHaveValue("");
+
+    await user.type(screen.getByLabelText("Browse from path"), "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna");
+    await user.click(screen.getByRole("button", { name: "Open path" }));
+    await user.click(await screen.findByRole("button", { name: /add visible files/i }));
+    expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /clear selected/i }));
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
   });
 
   it("analyzes selected references into an editable character draft", async () => {
@@ -231,6 +263,9 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /analyze references/i }));
 
     expect(await screen.findByDisplayValue("Marianna")).toBeInTheDocument();
+    expect(screen.getByText("76")).toBeInTheDocument();
+    expect(screen.getByText("a woman in a white shirt and denim shorts")).toBeInTheDocument();
+    expect(screen.getByText("Add 2-4 more references for stronger identity consistency.")).toBeInTheDocument();
     await user.click(screen.getByText("Advanced profile controls"));
     expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("offline image analysis");
     expect((screen.getByLabelText("Skin tone") as HTMLTextAreaElement).value).toContain("warm");

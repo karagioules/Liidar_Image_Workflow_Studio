@@ -26,6 +26,24 @@ export interface CharacterProfile {
   updated_at?: string;
 }
 
+export interface ReferenceAnalysisImage {
+  path: string;
+  file_name: string;
+  width: number;
+  height: number;
+  orientation: string;
+  brightness: string;
+  tone: string;
+  texture: string;
+  caption: string | null;
+}
+
+export interface ReferenceAnalysisResponse extends CharacterProfile {
+  consistency_score: number;
+  analysis_warnings: string[];
+  analysis_images: ReferenceAnalysisImage[];
+}
+
 export interface RuntimeStatus {
   os_name: string;
   python_version: string;

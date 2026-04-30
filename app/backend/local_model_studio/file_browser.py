@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import string
+from io import BytesIO
 from pathlib import Path
+
+from PIL import Image
 
 from local_model_studio.schemas import PathBrowserEntry, PathBrowserResponse
 
@@ -32,6 +35,21 @@ def browse_filesystem(raw_path: str | None, workspace_root: Path) -> PathBrowser
         parent_path=str(target.parent) if target.parent != target else None,
         entries=sorted(entries, key=lambda entry: (entry.kind == "file", entry.name.lower())),
     )
+
+
+def render_thumbnail(raw_path: str, max_size: int = 320) -> bytes:
+    path = Path(raw_path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Path does not exist: {path}")
+    if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+        raise ValueError(f"Path is not a supported image file: {path}")
+
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        image.thumbnail((max_size, max_size))
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=82, optimize=True)
+        return output.getvalue()
 
 
 def _default_entries(workspace_root: Path) -> list[PathBrowserEntry]:

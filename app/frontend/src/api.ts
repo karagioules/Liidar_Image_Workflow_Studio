@@ -6,6 +6,7 @@ import type {
   GenerationRequest,
   PathBrowserResponse,
   PromptRecipe,
+  ReferenceAnalysisResponse,
   RuntimeStatus,
   TrainerStatus,
   TrainingConfigRequest,
@@ -52,10 +53,11 @@ export const api = {
   },
   characters: () => request<CharacterProfile[]>("/api/characters"),
   analyzeReferences: (profile: CharacterProfile) =>
-    request<CharacterProfile>("/api/characters/analyze-references?vision=true", {
+    request<ReferenceAnalysisResponse>("/api/characters/analyze-references?vision=true", {
       method: "POST",
       body: JSON.stringify(profile)
     }),
+  thumbnailUrl: (path: string) => `${API_BASE}/api/filesystem/thumbnail?${new URLSearchParams({ path }).toString()}`,
   saveCharacter: (profile: CharacterProfile) =>
     request<CharacterProfile>("/api/characters", {
       method: "POST",

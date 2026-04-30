@@ -51,6 +51,24 @@ class ReferenceAnalysisRequest(BaseModel):
     locked_seed: int | None = None
 
 
+class ReferenceAnalysisImage(BaseModel):
+    path: str
+    file_name: str
+    width: int
+    height: int
+    orientation: str
+    brightness: str
+    tone: str
+    texture: str
+    caption: str | None = None
+
+
+class ReferenceAnalysisResponse(CharacterProfile):
+    consistency_score: int = Field(ge=0, le=100)
+    analysis_warnings: list[str] = Field(default_factory=list)
+    analysis_images: list[ReferenceAnalysisImage] = Field(default_factory=list)
+
+
 class GenerationRequest(BaseModel):
     character_id: str
     mode: GenerationMode = "portrait"

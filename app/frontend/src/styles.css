@@ -265,6 +265,10 @@ button svg {
   font-size: 0.82rem;
 }
 
+.rail-action {
+  width: 100%;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -329,7 +333,8 @@ textarea {
 .path-module-heading,
 .path-browser-bar,
 .path-entry,
-.selected-path {
+.selected-path,
+.selected-paths-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -400,6 +405,7 @@ textarea {
 }
 
 .path-entry div,
+.mini-actions,
 .mini-button,
 .icon-mini-button {
   display: inline-flex;
@@ -407,8 +413,28 @@ textarea {
   gap: 8px;
 }
 
+.mini-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .path-entry div {
   min-width: 0;
+}
+
+.path-thumb {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border: 1px solid #dce3ea;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #eef2f6;
+}
+
+.mini-thumb {
+  width: 34px;
+  height: 34px;
 }
 
 .path-entry span,
@@ -458,6 +484,110 @@ textarea {
 
 .paste-paths label {
   margin-top: 10px;
+}
+
+.analysis-panel {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.compact-panel {
+  align-items: center;
+}
+
+.analysis-score {
+  display: grid;
+  place-items: center;
+  min-height: 104px;
+  border-radius: 8px;
+  background: #edf7f5;
+  color: #0f513f;
+  text-align: center;
+}
+
+.analysis-score strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.analysis-score span {
+  max-width: 100px;
+  color: #28705b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.analysis-body {
+  min-width: 0;
+}
+
+.analysis-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.analysis-image-card {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.analysis-image-card img {
+  width: 74px;
+  height: 74px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.analysis-image-card strong,
+.analysis-image-card span,
+.analysis-image-card p {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.analysis-image-card span {
+  margin-top: 3px;
+  color: #607083;
+  font-size: 0.82rem;
+}
+
+.analysis-image-card p {
+  margin: 6px 0 0;
+  line-height: 1.35;
+}
+
+.readiness-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.readiness-list span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.readiness-list .ready {
+  background: #edf7f5;
+  color: #0f513f;
+}
+
+.readiness-list .pending {
+  background: #fff7ed;
+  color: #8a5a00;
 }
 
 .primary-button,
@@ -564,6 +694,7 @@ textarea {
   }
 
   .form-grid.two-column,
+  .analysis-panel,
   .status-grid,
   .count-grid,
   .recipe-box dl {

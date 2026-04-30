@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
-from local_model_studio.file_browser import browse_filesystem
+from local_model_studio.file_browser import browse_filesystem, render_thumbnail
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
@@ -23,6 +23,7 @@ from local_model_studio.schemas import (
     PathBrowserResponse,
     PromptRecipe,
     ReferenceAnalysisRequest,
+    ReferenceAnalysisResponse,
     RuntimeStatus,
 )
 from local_model_studio.training_config import build_training_config, check_trainer_status
@@ -85,6 +86,15 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/filesystem/thumbnail")
+    def thumbnail(path: str) -> Response:
+        try:
+            return Response(content=render_thumbnail(path), media_type="image/jpeg")
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/characters", response_model=list[CharacterProfile])
     def list_characters() -> list[CharacterProfile]:
         return profiles.list()
@@ -96,8 +106,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/characters/analyze-references", response_model=CharacterProfile)
-    def analyze_character_references(request: ReferenceAnalysisRequest, vision: bool = False) -> CharacterProfile:
+    @app.post("/api/characters/analyze-references", response_model=ReferenceAnalysisResponse)
+    def analyze_character_references(request: ReferenceAnalysisRequest, vision: bool = False) -> ReferenceAnalysisResponse:
         try:
             captioner = getattr(app.state, "captioner", None)
             if captioner is None and vision:
