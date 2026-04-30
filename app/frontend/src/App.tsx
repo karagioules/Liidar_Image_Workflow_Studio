@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, Play, RefreshCcw, Save, Search, SlidersHorizontal, UserRound } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, FileImage, Folder, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -9,6 +9,7 @@ import type {
   DatasetType,
   FacePolicy,
   GenerationMode,
+  PathBrowserResponse,
   PromptRecipe,
   QualityPreset,
   RuntimeStatus,
@@ -61,6 +62,16 @@ function parseReferencePaths(value: string): string[] {
     .split(/\r?\n/)
     .map((path) => path.trim())
     .filter(Boolean);
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+}
+
+function parentPath(path: string): string {
+  const normalized = path.trim();
+  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
+  return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized;
 }
 
 function displayNameFromReferencePaths(paths: string[]): string {
@@ -413,7 +424,7 @@ function CharactersPanel(props: {
 }) {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onChange, onSave } = props;
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
-  const updateReferences = (value: string) => onChange({ ...editingCharacter, reference_images: parseReferencePaths(value) });
+  const updateReferences = (paths: string[]) => onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
   const createDraft = () => {
     if (!editingCharacter.reference_images.length) {
       return;
@@ -448,7 +459,7 @@ function CharactersPanel(props: {
             {ageCategories.map((age) => <option key={age} value={age}>{labelize(age)}</option>)}
           </select>
         </label>
-        <Textarea label="Reference image paths" value={referencePathsText(editingCharacter)} onChange={updateReferences} />
+        <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
         <button type="button" className="secondary-button" onClick={createDraft} disabled={!editingCharacter.reference_images.length}>
           <Search aria-hidden="true" />
           Create draft from references
@@ -710,6 +721,102 @@ function TrainingPanel(props: {
           </>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (paths: string[]) => void }) {
+  const [browsePath, setBrowsePath] = useState(paths[0] ? parentPath(paths[0]) : "");
+  const [browser, setBrowser] = useState<PathBrowserResponse | null>(null);
+  const [browserError, setBrowserError] = useState("");
+  const [isBrowsing, setIsBrowsing] = useState(false);
+
+  const openPath = async (path = browsePath) => {
+    try {
+      setIsBrowsing(true);
+      setBrowserError("");
+      const result = await api.browseFilesystem(path);
+      setBrowser(result);
+      setBrowsePath(result.current_path ?? path);
+    } catch (caught) {
+      setBrowserError(caught instanceof Error ? caught.message : "Unable to open path.");
+    } finally {
+      setIsBrowsing(false);
+    }
+  };
+
+  const addPath = (path: string) => onChange(uniquePaths([...paths, path]));
+  const removePath = (path: string) => onChange(paths.filter((candidate) => candidate !== path));
+
+  return (
+    <section className="path-module" aria-label="Reference image path module">
+      <div className="path-module-heading">
+        <div>
+          <strong>Reference images</strong>
+          <span>{paths.length} selected</span>
+        </div>
+      </div>
+      <div className="path-open-row">
+        <label>
+          Browse from path
+          <input value={browsePath} onChange={(event) => setBrowsePath(event.target.value)} placeholder="H:/DevWork/Win_Apps/Liidar/Models/Marianna" />
+        </label>
+        <button type="button" className="secondary-button inline-button" onClick={() => void openPath()} disabled={isBrowsing}>
+          <FolderOpen aria-hidden="true" />
+          Open path
+        </button>
+      </div>
+      {browserError ? <div className="inline-error">{browserError}</div> : null}
+      {browser ? (
+        <div className="path-browser">
+          <div className="path-browser-bar">
+            <strong>{browser.current_path ?? "Local roots"}</strong>
+            {browser.parent_path ? (
+              <button type="button" className="mini-button" onClick={() => void openPath(browser.parent_path ?? "")}>
+                Up
+              </button>
+            ) : null}
+          </div>
+          <div className="path-entry-list">
+            {browser.entries.map((entry) => (
+              <div className="path-entry" key={entry.path}>
+                <div>
+                  {entry.kind === "file" ? <FileImage aria-hidden="true" /> : <Folder aria-hidden="true" />}
+                  <span>{entry.name}</span>
+                </div>
+                {entry.kind === "file" ? (
+                  <button type="button" className="mini-button" onClick={() => addPath(entry.path)} aria-label={`Add ${entry.name}`}>
+                    <Plus aria-hidden="true" />
+                    Add
+                  </button>
+                ) : (
+                  <button type="button" className="mini-button" onClick={() => void openPath(entry.path)} aria-label={`Open ${entry.name}`}>
+                    Open
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="selected-paths">
+        {paths.length ? (
+          paths.map((path) => (
+            <div className="selected-path" key={path}>
+              <span>{path}</span>
+              <button type="button" className="icon-mini-button" onClick={() => removePath(path)} aria-label={`Remove ${path}`}>
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ))
+        ) : (
+          <p>No reference images selected.</p>
+        )}
+      </div>
+      <details className="paste-paths">
+        <summary>Paste paths</summary>
+        <Textarea label="Reference image paths" value={paths.join("\n")} onChange={(value) => onChange(uniquePaths(parseReferencePaths(value)))} />
+      </details>
     </section>
   );
 }

@@ -71,6 +71,21 @@ class RuntimeStatus(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+PathEntryKind = Literal["directory", "file", "drive"]
+
+
+class PathBrowserEntry(BaseModel):
+    name: str
+    path: str
+    kind: PathEntryKind
+
+
+class PathBrowserResponse(BaseModel):
+    current_path: str | None
+    parent_path: str | None
+    entries: list[PathBrowserEntry]
+
+
 class GenerationJobResponse(BaseModel):
     prompt_id: str
     recipe: PromptRecipe

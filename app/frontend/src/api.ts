@@ -4,6 +4,7 @@ import type {
   DatasetScanRequest,
   GenerationJobResponse,
   GenerationRequest,
+  PathBrowserResponse,
   PromptRecipe,
   RuntimeStatus,
   TrainerStatus,
@@ -42,6 +43,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   runtime: () => request<RuntimeStatus>("/api/runtime"),
+  browseFilesystem: (path: string) => {
+    const params = new URLSearchParams();
+    if (path.trim()) {
+      params.set("path", path.trim());
+    }
+    return request<PathBrowserResponse>(`/api/filesystem/browse?${params.toString()}`);
+  },
   characters: () => request<CharacterProfile[]>("/api/characters"),
   saveCharacter: (profile: CharacterProfile) =>
     request<CharacterProfile>("/api/characters", {

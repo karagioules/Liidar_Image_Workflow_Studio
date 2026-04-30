@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
+from local_model_studio.file_browser import browse_filesystem
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
 from local_model_studio.prompt_builder import build_prompt_recipe
@@ -17,6 +18,7 @@ from local_model_studio.schemas import (
     CharacterProfile,
     GenerationJobResponse,
     GenerationRequest,
+    PathBrowserResponse,
     PromptRecipe,
     RuntimeStatus,
 )
@@ -70,6 +72,15 @@ def create_app(
     @app.get("/api/runtime", response_model=RuntimeStatus)
     def runtime_status() -> RuntimeStatus:
         return build_runtime_status(workspace_paths)
+
+    @app.get("/api/filesystem/browse", response_model=PathBrowserResponse)
+    def browse_local_filesystem(path: str | None = None) -> PathBrowserResponse:
+        try:
+            return browse_filesystem(path, workspace_paths.root)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/characters", response_model=list[CharacterProfile])
     def list_characters() -> list[CharacterProfile]:

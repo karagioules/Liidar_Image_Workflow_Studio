@@ -58,6 +58,25 @@ describe("App", () => {
           return jsonResponse([character]);
         }
 
+        if (url.includes("/api/filesystem/browse")) {
+          return jsonResponse({
+            current_path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna",
+            parent_path: "H:\\DevWork\\Win_Apps\\Liidar\\Models",
+            entries: [
+              {
+                name: "sozee_2026-04-30_11-47-30.png",
+                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png",
+                kind: "file"
+              },
+              {
+                name: "Backups",
+                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\Backups",
+                kind: "directory"
+              }
+            ]
+          });
+        }
+
         if (url.endsWith("/api/generate/preview")) {
           return jsonResponse({
             positive: "believable still photo, golden hour balcony",
@@ -165,6 +184,22 @@ describe("App", () => {
     await user.click(screen.getByText("Advanced profile controls"));
     expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("fictional adult face");
     expect((screen.getByLabelText("Style notes") as HTMLTextAreaElement).value).toContain("reference-guided");
+  });
+
+  it("adds reference images from the local path browser", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.type(
+      screen.getByLabelText("Browse from path"),
+      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna"
+    );
+    await user.click(screen.getByRole("button", { name: "Open path" }));
+    await user.click(await screen.findByRole("button", { name: /add sozee_2026-04-30_11-47-30.png/i }));
+
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png").length).toBeGreaterThan(0);
   });
 
   it("previews a believable still photo recipe", async () => {

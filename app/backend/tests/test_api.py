@@ -111,6 +111,26 @@ def test_missing_character_preview_and_generate_return_404(tmp_path: Path) -> No
     assert generate.status_code == 404
 
 
+def test_file_browser_lists_folders_and_supported_images(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    (source / "Nested").mkdir()
+    Image.new("RGB", (8, 8), color="blue").save(source / "sozee.png")
+    (source / "notes.txt").write_text("ignore me", encoding="utf-8")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get("/api/filesystem/browse", params={"path": str(source)})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["current_path"] == str(source)
+    assert body["parent_path"] == str(source.parent)
+    entries = {(entry["name"], entry["kind"]) for entry in body["entries"]}
+    assert ("Nested", "directory") in entries
+    assert ("sozee.png", "file") in entries
+    assert ("notes.txt", "file") not in entries
+
+
 def test_training_scan_route_accepts_body_part_image(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

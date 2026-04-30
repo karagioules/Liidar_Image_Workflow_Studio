@@ -317,6 +317,149 @@ textarea {
   resize: vertical;
 }
 
+.path-module {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.path-module-heading,
+.path-browser-bar,
+.path-entry,
+.selected-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.path-module-heading strong,
+.path-module-heading span {
+  display: block;
+}
+
+.path-module-heading span,
+.selected-paths p {
+  margin: 3px 0 0;
+  color: #607083;
+  font-size: 0.84rem;
+}
+
+.path-open-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.inline-button {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.inline-error {
+  padding: 10px;
+  border: 1px solid #efc1c8;
+  border-radius: 8px;
+  background: #fff5f6;
+  color: #8a1f2d;
+}
+
+.path-browser {
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.path-browser-bar {
+  padding: 10px;
+  border-bottom: 1px solid #dce3ea;
+}
+
+.path-browser-bar strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.path-entry-list {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.path-entry {
+  padding: 9px 10px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.path-entry:last-child {
+  border-bottom: 0;
+}
+
+.path-entry div,
+.mini-button,
+.icon-mini-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-entry div {
+  min-width: 0;
+}
+
+.path-entry span,
+.selected-path span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mini-button,
+.icon-mini-button {
+  border: 0;
+  border-radius: 8px;
+  background: #e8edf2;
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.mini-button {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.icon-mini-button {
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+}
+
+.selected-paths {
+  display: grid;
+  gap: 8px;
+}
+
+.selected-path {
+  padding: 8px 10px;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.paste-paths summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 700;
+}
+
+.paste-paths label {
+  margin-top: 10px;
+}
+
 .primary-button,
 .secondary-button {
   display: inline-flex;

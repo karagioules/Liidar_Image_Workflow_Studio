@@ -37,6 +37,18 @@ export interface RuntimeStatus {
   warnings: string[];
 }
 
+export interface PathBrowserEntry {
+  name: string;
+  path: string;
+  kind: "directory" | "file" | "drive";
+}
+
+export interface PathBrowserResponse {
+  current_path: string | null;
+  parent_path: string | null;
+  entries: PathBrowserEntry[];
+}
+
 export interface GenerationRequest {
   character_id: string;
   mode: GenerationMode;
