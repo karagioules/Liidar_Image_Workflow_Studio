@@ -77,7 +77,7 @@ describe("App", () => {
           });
         }
 
-        if (url.endsWith("/api/characters/analyze-references")) {
+        if (url.includes("/api/characters/analyze-references")) {
           return jsonResponse({
             ...character,
             display_name: "Marianna",

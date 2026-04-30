@@ -52,7 +52,7 @@ export const api = {
   },
   characters: () => request<CharacterProfile[]>("/api/characters"),
   analyzeReferences: (profile: CharacterProfile) =>
-    request<CharacterProfile>("/api/characters/analyze-references", {
+    request<CharacterProfile>("/api/characters/analyze-references?vision=true", {
       method: "POST",
       body: JSON.stringify(profile)
     }),

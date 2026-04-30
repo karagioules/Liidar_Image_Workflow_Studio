@@ -22,7 +22,10 @@ class ImageSignals:
     texture: float
 
 
-def analyze_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
+def analyze_references(
+    request: ReferenceAnalysisRequest,
+    captions: list[str] | None = None,
+) -> CharacterProfile:
     paths = [Path(path) for path in request.reference_images]
     signals = [_read_image_signals(path) for path in paths]
     if not signals:
@@ -35,23 +38,25 @@ def analyze_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
     texture = _texture_note(signals)
     count = len(signals)
     plural = "images" if count != 1 else "image"
+    caption_text = _caption_text(captions)
+    vision_prefix = f"local vision model caption: {caption_text}; " if caption_text else ""
 
     return CharacterProfile(
         id=request.id,
         display_name=display_name,
         age_category=request.age_category,
         face_summary=(
-            f"offline image analysis from {count} reference {plural}; fictional adult face identity guided by the selected local images; "
+            f"offline image analysis from {count} reference {plural}; {vision_prefix}fictional adult face identity guided by the selected local images; "
             "preserve recurring face structure, expression style, and natural asymmetry without matching any real person"
         ),
-        hair="reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed",
-        eyes="reference-inferred eye shape and color; keep gaze and expression style consistent",
+        hair=f"{vision_prefix}reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed",
+        eyes=f"{vision_prefix}reference-inferred eye shape and color; keep gaze and expression style consistent",
         skin_tone=f"{warmth} natural skin tone inferred from local image color balance; keep skin texture believable",
         body_shape="reference-inferred adult body proportions and posture; keep anatomy natural and physically plausible",
         chest="reference-inferred natural adult body shape; avoid exaggerated or plastic-looking anatomy",
-        grooming="reference-inferred grooming and presentation; keep details realistic and consistent",
+        grooming=f"{vision_prefix}reference-inferred grooming and presentation; keep details realistic and consistent",
         style_notes=(
-            f"offline image analysis: {orientation}, {lighting}, {texture}; reference-guided believable still photo style "
+            f"offline image analysis: {orientation}, {lighting}, {texture}; {vision_prefix}reference-guided believable still photo style "
             "with natural camera rendering and no overpolished AI look"
         ),
         negative_notes="plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike",
@@ -60,6 +65,13 @@ def analyze_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
         seed_strategy=request.seed_strategy,
         locked_seed=request.locked_seed,
     )
+
+
+def _caption_text(captions: list[str] | None) -> str:
+    if not captions:
+        return ""
+    cleaned = [caption.strip().rstrip(".") for caption in captions if caption.strip()]
+    return "; ".join(cleaned[:3])
 
 
 def _read_image_signals(path: Path) -> ImageSignals:

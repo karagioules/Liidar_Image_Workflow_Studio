@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
 from local_model_studio.file_browser import browse_filesystem
+from local_model_studio.local_vision_captioner import local_captioner_from_workspace
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
 from local_model_studio.prompt_builder import build_prompt_recipe
@@ -96,11 +97,18 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/characters/analyze-references", response_model=CharacterProfile)
-    def analyze_character_references(request: ReferenceAnalysisRequest) -> CharacterProfile:
+    def analyze_character_references(request: ReferenceAnalysisRequest, vision: bool = False) -> CharacterProfile:
         try:
-            return analyze_references(request)
+            captioner = getattr(app.state, "captioner", None)
+            if captioner is None and vision:
+                captioner = local_captioner_from_workspace(workspace_paths.root)
+                app.state.captioner = captioner
+            captions = captioner([Path(path) for path in request.reference_images]) if captioner else None
+            return analyze_references(request, captions=captions)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

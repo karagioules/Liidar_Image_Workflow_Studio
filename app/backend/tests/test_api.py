@@ -159,6 +159,35 @@ def test_analyze_references_returns_character_draft_from_local_images(tmp_path: 
     assert "warm" in body["skin_tone"]
 
 
+def test_analyze_references_includes_local_vision_caption_when_available(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    reference = source / "portrait.png"
+    Image.new("RGB", (800, 1200), color=(235, 225, 210)).save(reference)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: ["a woman with dark wavy hair in a white shirt"]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "marianna",
+            "display_name": "",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(reference)],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "local vision model caption" in body["face_summary"]
+    assert "dark wavy hair" in body["hair"]
+    assert "white shirt" in body["style_notes"]
+
+
 def test_training_scan_route_accepts_body_part_image(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

@@ -440,7 +440,8 @@ function CharactersPanel(props: {
     try {
       setIsAnalyzing(true);
       setAnalysisError("");
-      onChange(await api.analyzeReferences(editingCharacter));
+      const analyzed = await api.analyzeReferences(editingCharacter);
+      onChange({ ...editingCharacter, ...analyzed, reference_images: analyzed.reference_images ?? editingCharacter.reference_images });
     } catch (caught) {
       setAnalysisError(caught instanceof Error ? caught.message : "Unable to analyze reference images.");
     } finally {
