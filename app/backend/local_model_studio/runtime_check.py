@@ -79,7 +79,7 @@ def _detect_windows_gpus() -> tuple[list[str], str | None, list[str]]:
         (
             controller.get("DriverVersion")
             for controller in controllers
-            if "amd radeon" in str(controller.get("Name", "")).lower()
+            if _has_amd_radeon_gpu([str(controller.get("Name", ""))])
             and controller.get("DriverVersion")
         ),
         None,
@@ -115,7 +115,9 @@ def _string_value(value: Any) -> str:
 
 
 def _has_amd_radeon_gpu(gpu_names: list[str]) -> bool:
-    return any("amd radeon" in name.lower() for name in gpu_names)
+    return any(
+        "amd" in name.lower() or "radeon" in name.lower() for name in gpu_names
+    )
 
 
 def _cpu_name() -> str:
