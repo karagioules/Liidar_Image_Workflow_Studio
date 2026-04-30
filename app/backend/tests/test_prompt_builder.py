@@ -33,6 +33,30 @@ def test_builds_locked_identity_prompt() -> None:
     assert recipe.seed == 1234
 
 
+def test_recipe_biases_toward_believable_photos() -> None:
+    recipe = build_prompt_recipe(
+        profile(),
+        GenerationRequest(character_id="abc", mode="portrait", scene_prompt="coffee shop window light"),
+    )
+
+    assert "natural skin texture" in recipe.positive
+    assert "realistic camera photo" in recipe.positive
+    assert "imperfect candid realism" in recipe.positive
+    assert "plastic skin" in recipe.negative
+    assert "airbrushed" in recipe.negative
+    assert "overprocessed" in recipe.negative
+    assert "AI-looking" in recipe.negative
+    assert "uncanny symmetry" in recipe.negative
+    assert "waxy skin" in recipe.negative
+    assert "minor" in recipe.negative
+    assert "underage" in recipe.negative
+    assert "childlike" in recipe.negative
+    assert "celebrity" in recipe.negative
+    assert "real person" in recipe.negative
+    assert "video" not in recipe.positive.lower()
+    assert "video" not in recipe.negative.lower()
+
+
 def test_quality_changes_dimensions_and_steps() -> None:
     fast = build_prompt_recipe(profile(), GenerationRequest(character_id="abc", quality="fast"))
     ultra = build_prompt_recipe(profile(), GenerationRequest(character_id="abc", quality="ultra"))

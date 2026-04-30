@@ -20,7 +20,10 @@ MODE_PROMPTS = {
     "reference_match": "realistic reference-guided composition, consistent identity",
 }
 
-BASE_NEGATIVE = "minor, underage, childlike, celebrity, real person, distorted face, distorted hands, low detail, watermark, text"
+BASE_NEGATIVE = (
+    "minor, underage, childlike, celebrity, real person, distorted face, distorted hands, low detail, "
+    "watermark, text, plastic skin, airbrushed, overprocessed, AI-looking, uncanny symmetry, waxy skin"
+)
 
 
 def build_prompt_recipe(profile: CharacterProfile, request: GenerationRequest) -> PromptRecipe:
@@ -38,7 +41,7 @@ def build_prompt_recipe(profile: CharacterProfile, request: GenerationRequest) -
         profile.grooming,
         profile.style_notes,
         request.scene_prompt,
-        "photorealistic, high-end creator content, consistent character identity",
+        "photorealistic, realistic camera photo, natural skin texture, imperfect candid realism, consistent character identity",
     ]
     negative_parts = [BASE_NEGATIVE, profile.negative_notes, request.extra_negative]
     return PromptRecipe(
