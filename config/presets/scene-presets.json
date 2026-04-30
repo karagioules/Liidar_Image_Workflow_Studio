@@ -1,0 +1,20 @@
+[
+  {
+    "id": "balcony_selfie",
+    "label": "Balcony Selfie",
+    "mode": "lifestyle_post",
+    "prompt": "sunlit balcony selfie, realistic phone camera, relaxed expression"
+  },
+  {
+    "id": "clean_studio",
+    "label": "Clean Studio",
+    "mode": "studio",
+    "prompt": "neutral studio backdrop, softbox lighting, premium editorial detail"
+  },
+  {
+    "id": "beach_walk",
+    "label": "Beach Walk",
+    "mode": "full_body",
+    "prompt": "golden hour beach walk, natural pose, realistic outdoor lighting"
+  }
+]
