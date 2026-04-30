@@ -500,6 +500,7 @@ function CharactersPanel(props: {
         </label>
         <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
         {analysisError ? <div className="inline-error">{analysisError}</div> : null}
+        {isAnalyzing ? <AnalysisProgress imageCount={editingCharacter.reference_images.length} /> : null}
         {analysis ? <ReferenceAnalysisPanel analysis={analysis} /> : <CharacterReadiness profile={editingCharacter} />}
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={() => void analyzeReferences()} disabled={!editingCharacter.reference_images.length || isAnalyzing}>
@@ -940,6 +941,20 @@ function CharacterReadiness({ profile }: { profile: CharacterProfile }) {
         {checks.map(([label, ok]) => (
           <span className={ok ? "ready" : "pending"} key={label}>{label}</span>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function AnalysisProgress({ imageCount }: { imageCount: number }) {
+  return (
+    <section className="analysis-progress" aria-live="polite">
+      <div>
+        <strong>Analyzing references</strong>
+        <span>Reading selected images and local vision captions for {imageCount} image{imageCount === 1 ? "" : "s"}.</span>
+      </div>
+      <div className="progress-track" role="progressbar" aria-label="Analyzing references">
+        <span />
       </div>
     </section>
   );

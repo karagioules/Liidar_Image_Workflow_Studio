@@ -318,6 +318,30 @@ describe("App", () => {
     expect((screen.getByLabelText("Skin tone") as HTMLTextAreaElement).value).toContain("warm");
   });
 
+  it("shows analysis progress while references are being analyzed", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/characters/analyze-references")) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return defaultFetch?.(input, init) ?? jsonResponse({});
+    });
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.type(
+      screen.getByLabelText("Reference image paths"),
+      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
+    );
+    await user.click(screen.getByRole("button", { name: /analyze references/i }));
+
+    expect(await screen.findByRole("progressbar", { name: /analyzing references/i })).toBeInTheDocument();
+    expect(screen.getByText(/Reading selected images/i)).toBeInTheDocument();
+  });
+
   it("previews a believable still photo recipe", async () => {
     const user = userEvent.setup();
     render(<App />);

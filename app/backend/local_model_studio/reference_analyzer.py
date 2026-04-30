@@ -48,19 +48,21 @@ def analyze_references(
         id=request.id,
         display_name=display_name,
         age_category=request.age_category,
-        face_summary=(
+        face_summary=_fit_text(
             f"offline image analysis from {count} reference {plural}; {vision_prefix}fictional adult face identity guided by the selected local images; "
-            "preserve recurring face structure, expression style, and natural asymmetry without matching any real person"
+            "preserve recurring face structure, expression style, and natural asymmetry without matching any real person",
+            600,
         ),
-        hair=f"{vision_prefix}reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed",
-        eyes=f"{vision_prefix}reference-inferred eye shape and color; keep gaze and expression style consistent",
+        hair=_fit_text(f"{vision_prefix}reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed", 240),
+        eyes=_fit_text(f"{vision_prefix}reference-inferred eye shape and color; keep gaze and expression style consistent", 160),
         skin_tone=f"{warmth} natural skin tone inferred from local image color balance; keep skin texture believable",
         body_shape="reference-inferred adult body proportions and posture; keep anatomy natural and physically plausible",
         chest="reference-inferred natural adult body shape; avoid exaggerated or plastic-looking anatomy",
-        grooming=f"{vision_prefix}reference-inferred grooming and presentation; keep details realistic and consistent",
-        style_notes=(
+        grooming=_fit_text(f"{vision_prefix}reference-inferred grooming and presentation; keep details realistic and consistent", 240),
+        style_notes=_fit_text(
             f"offline image analysis: {orientation}, {lighting}, {texture}; {vision_prefix}reference-guided believable still photo style "
-            "with natural camera rendering and no overpolished AI look"
+            "with natural camera rendering and no overpolished AI look",
+            600,
         ),
         negative_notes="plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike",
         reference_images=[str(path) for path in paths],
@@ -78,6 +80,13 @@ def _caption_text(captions: list[str] | None) -> str:
         return ""
     cleaned = [caption.strip().rstrip(".") for caption in captions if caption.strip()]
     return "; ".join(cleaned[:3])
+
+
+def _fit_text(value: str, max_length: int) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 3].rstrip(" ;,.") + "..."
 
 
 def _analysis_images(
