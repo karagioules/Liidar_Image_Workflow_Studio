@@ -26,7 +26,13 @@ class TrainingStore:
             existing_created_at = TrainingJobConfig.model_validate_json(
                 path.read_text(encoding="utf-8")
             ).created_at
-        saved = config.model_copy(update={"created_at": existing_created_at, "updated_at": now})
+        saved = config.model_copy(
+            update={
+                "config_path": str(path),
+                "created_at": existing_created_at,
+                "updated_at": now,
+            }
+        )
         path.write_text(saved.model_dump_json(indent=2), encoding="utf-8")
         return saved
 
@@ -68,4 +74,4 @@ class TrainingStore:
 
     def _load_path(self, path: Path) -> TrainingJobConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return TrainingJobConfig.model_validate(data)
+        return TrainingJobConfig.model_validate({**data, "config_path": str(path)})

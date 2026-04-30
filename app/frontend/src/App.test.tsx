@@ -81,7 +81,38 @@ describe("App", () => {
             ignored_count: 3,
             accepted: [],
             rejected: [],
-            warnings: []
+            warnings: ["Skipped unreadable image."]
+          });
+        }
+
+        if (url.endsWith("/api/training/config")) {
+          return jsonResponse({
+            job_id: "job-1",
+            dataset_id: "dataset-1",
+            dataset_path: "H:\\photos\\training-pack",
+            output_dir: "outputs/lora",
+            base_model_path: "base.safetensors",
+            lora_name: "ari_style",
+            resolution: 1024,
+            repeats: 10,
+            batch_size: 1,
+            max_train_steps: 1200,
+            learning_rate: 0.0001,
+            network_dim: 32,
+            network_alpha: 16,
+            accepted_image_count: 12,
+            completed_lora_path: null,
+            config_path: "H:\\studio\\config\\training\\job-1.json"
+          });
+        }
+
+        if (url.includes("/api/training/status")) {
+          return jsonResponse({
+            trainer_entrypoint: "train_network.py",
+            config_path: "H:\\studio\\config\\training\\job-1.json",
+            trainer_entrypoint_exists: false,
+            config_path_exists: true,
+            warnings: ["Trainer entrypoint is missing: train_network.py"]
           });
         }
 
@@ -141,5 +172,20 @@ describe("App", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("Skipped unreadable image.")).toBeInTheDocument();
+  });
+
+  it("uses backend config path and surfaces trainer warnings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Training" }));
+    await user.click(screen.getByRole("button", { name: /create training config/i }));
+
+    expect(await screen.findByDisplayValue("H:\\studio\\config\\training\\job-1.json")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /check status/i }));
+
+    expect(await screen.findByText("Trainer entrypoint is missing: train_network.py")).toBeInTheDocument();
   });
 });

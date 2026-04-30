@@ -155,7 +155,9 @@ def test_training_config_route_persists_job_for_accepted_directory(tmp_path: Pat
     body = response.json()
     assert body["dataset_id"] == "dataset-1"
     assert body["accepted_image_count"] == 1
-    assert (tmp_path / "config" / "training" / f"{body['job_id']}.json").is_file()
+    expected_config_path = tmp_path / "config" / "training" / f"{body['job_id']}.json"
+    assert body["config_path"] == str(expected_config_path)
+    assert expected_config_path.is_file()
 
 
 def test_register_lora_route_rejects_missing_file_and_accepts_safetensors(

@@ -73,6 +73,7 @@ class TrainingJobConfig(BaseModel):
     dataset_id: str
     dataset_path: str
     output_dir: str
+    config_path: str | None = None
     base_model_path: str
     lora_name: str
     resolution: int = 1024

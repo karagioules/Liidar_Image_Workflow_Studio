@@ -99,6 +99,7 @@ export interface TrainingConfigRequest {
 
 export interface TrainingJobConfig extends TrainingConfigRequest {
   job_id: string;
+  config_path: string | null;
   accepted_image_count: number;
   completed_lora_path: string | null;
   created_at?: string;

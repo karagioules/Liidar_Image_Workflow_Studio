@@ -358,26 +358,6 @@ textarea {
   gap: 16px;
 }
 
-.drop-zone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 92px;
-  margin-bottom: 16px;
-  border: 1px dashed #9fb0c1;
-  border-radius: 8px;
-  background: #f7fafc;
-  color: #516172;
-  font-weight: 650;
-  text-align: center;
-}
-
-.drop-zone svg {
-  width: 22px;
-  height: 22px;
-}
-
 .count-grid {
   margin-top: 16px;
   grid-template-columns: repeat(4, minmax(0, 1fr));

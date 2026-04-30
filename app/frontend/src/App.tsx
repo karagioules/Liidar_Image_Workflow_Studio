@@ -205,7 +205,7 @@ function App() {
         accepted_image_count: acceptedImageCount
       });
       setTrainingJob(job);
-      setTrainerConfigPath(`${job.output_dir}/${job.job_id}.json`);
+      setTrainerConfigPath(job.config_path ?? "");
       setMessage(`Training config created for ${job.lora_name}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create training config.");
@@ -531,10 +531,6 @@ function TrainingPanel(props: {
           <h2>Dataset scan</h2>
           <p>Use a typed local path; the backend scans the folder.</p>
         </div>
-        <div className="drop-zone">
-          <ClipboardList aria-hidden="true" />
-          <span>Drop-zone staging area</span>
-        </div>
         <div className="form-grid two-column">
           <label>
             Dataset name
@@ -583,6 +579,7 @@ function TrainingPanel(props: {
           <Metric label="Duplicate" value={props.scanReport?.duplicate_count ?? 0} />
           <Metric label="Ignored" value={props.scanReport?.ignored_count ?? 0} />
         </div>
+        {props.scanReport?.warnings.length ? <WarningList warnings={props.scanReport.warnings} /> : null}
       </div>
 
       <div className="panel">
@@ -644,10 +641,13 @@ function TrainingPanel(props: {
           Check status
         </button>
         {props.trainerStatus ? (
-          <div className="status-grid compact">
-            <Metric label="Entrypoint" value={props.trainerStatus.trainer_entrypoint_exists ? "Found" : "Missing"} />
-            <Metric label="Config" value={props.trainerStatus.config_path_exists ? "Found" : "Missing"} />
-          </div>
+          <>
+            <div className="status-grid compact">
+              <Metric label="Entrypoint" value={props.trainerStatus.trainer_entrypoint_exists ? "Found" : "Missing"} />
+              <Metric label="Config" value={props.trainerStatus.config_path_exists ? "Found" : "Missing"} />
+            </div>
+            {props.trainerStatus.warnings.length ? <WarningList warnings={props.trainerStatus.warnings} /> : null}
+          </>
         ) : null}
       </div>
     </section>
