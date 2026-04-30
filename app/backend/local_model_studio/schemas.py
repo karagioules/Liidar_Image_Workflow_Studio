@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, field_validator
+
+
+AdultAgeCategory = Literal["adult_18_plus", "adult_21_plus", "adult_25_plus", "adult_30_plus"]
+QualityPreset = Literal["fast", "balanced", "high", "ultra"]
+GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "reference_match"]
+SeedStrategy = Literal["locked", "vary", "reuse_last"]
+
+
+class CharacterProfile(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    display_name: str = Field(min_length=1, max_length=80)
+    age_category: AdultAgeCategory = "adult_25_plus"
+    face_summary: str = Field(default="", max_length=600)
+    hair: str = Field(default="", max_length=240)
+    eyes: str = Field(default="", max_length=160)
+    skin_tone: str = Field(default="", max_length=160)
+    body_shape: str = Field(default="", max_length=400)
+    chest: str = Field(default="", max_length=240)
+    grooming: str = Field(default="", max_length=240)
+    style_notes: str = Field(default="", max_length=600)
+    negative_notes: str = Field(default="", max_length=600)
+    reference_images: list[str] = Field(default_factory=list)
+    lora_files: list[str] = Field(default_factory=list)
+    seed_strategy: SeedStrategy = "vary"
+    locked_seed: int | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("age_category")
+    @classmethod
+    def require_adult_age_category(cls, value: str) -> str:
+        if not value.startswith("adult_"):
+            raise ValueError("Character profiles must use an adult age category.")
+        return value
+
+
+class GenerationRequest(BaseModel):
+    character_id: str
+    mode: GenerationMode = "portrait"
+    quality: QualityPreset = "balanced"
+    scene_prompt: str = Field(default="", max_length=1000)
+    extra_negative: str = Field(default="", max_length=1000)
+    seed: int | None = None
+
+
+class PromptRecipe(BaseModel):
+    positive: str
+    negative: str
+    seed: int
+    width: int
+    height: int
+    steps: int
+    cfg: float
+
+
+class RuntimeStatus(BaseModel):
+    os_name: str
+    python_version: str
+    cpu_name: str
+    total_ram_gb: float
+    gpu_names: list[str]
+    amd_driver_version: str | None
+    comfyui_path_exists: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class GenerationJobResponse(BaseModel):
+    prompt_id: str
+    recipe: PromptRecipe
+
+
+class OutputMetadata(BaseModel):
+    file_name: str
+    character_id: str
+    character_display_name: str
+    request: GenerationRequest
+    recipe: PromptRecipe
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
