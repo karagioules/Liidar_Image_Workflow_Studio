@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ QualityPreset = Literal["fast", "balanced", "high", "ultra"]
 GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "reference_match"]
 SeedStrategy = Literal["locked", "vary", "reuse_last"]
 VisibilityLevel = Literal["clear", "partial", "covered", "not_visible", "unclear"]
+DatasetPrepTarget = Literal["chest_detail", "upper_torso", "full_body_context"]
 
 
 class CharacterProfile(BaseModel):
@@ -195,6 +197,51 @@ class SelectedReferenceImagesResponse(BaseModel):
 
 class SelectedFolderResponse(BaseModel):
     folder_path: str | None
+
+
+class DatasetPrepRequest(BaseModel):
+    source_folder: Path
+    output_folder: Path | None = None
+    target: DatasetPrepTarget = "chest_detail"
+    recursive: bool = True
+    use_ai: bool = False
+    ai_max_images: int = Field(default=25, ge=0, le=500)
+    ai_model: str = Field(default="claude-3-haiku-20240307", max_length=120)
+
+
+class DatasetPrepImage(BaseModel):
+    source_path: str
+    output_path: str | None = None
+    width: int
+    height: int
+    face_count: int = Field(ge=0)
+    accepted: bool
+    reason: str
+    method: str
+    crop_box: list[int] | None = None
+
+
+class DatasetPrepResponse(BaseModel):
+    output_folder: str
+    processed_count: int
+    cropped_count: int
+    skipped_count: int
+    ai_guided_count: int = 0
+    face_guided_count: int
+    fallback_count: int
+    warnings: list[str] = Field(default_factory=list)
+    images: list[DatasetPrepImage] = Field(default_factory=list)
+
+
+class ApiKeyStatus(BaseModel):
+    provider: str
+    saved: bool
+    model: str
+
+
+class ApiKeyPayload(BaseModel):
+    api_key: str = Field(min_length=1, max_length=400)
+    model: str = Field(default="claude-3-haiku-20240307", max_length=120)
 
 
 class GenerationJobResponse(BaseModel):

@@ -88,6 +88,22 @@ def test_live_system_metrics_route_returns_usage(tmp_path: Path) -> None:
     assert "timestamp" in body
 
 
+def test_anthropic_key_routes_save_status_and_delete(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    initial = client.get("/api/settings/anthropic-key")
+    saved = client.post("/api/settings/anthropic-key", json={"api_key": "sk-ant-test"})
+    removed = client.delete("/api/settings/anthropic-key")
+
+    assert initial.status_code == 200
+    assert initial.json()["saved"] is False
+    assert saved.status_code == 200
+    assert saved.json()["saved"] is True
+    assert saved.json()["model"] == "claude-3-haiku-20240307"
+    assert removed.status_code == 200
+    assert removed.json()["saved"] is False
+
+
 def test_gpu_counter_probe_treats_idle_gpu_as_zero(monkeypatch) -> None:
     runtime_check._GPU_COUNTER_CACHE = None
     monkeypatch.setattr(runtime_check.platform, "system", lambda: "Windows")
@@ -232,6 +248,34 @@ def test_file_browser_serves_image_thumbnail(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert len(response.content) > 100
+
+
+def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -> None:
+    source = tmp_path / "raw"
+    output = tmp_path / "prepared"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    (source / "notes.txt").write_text("ignore me", encoding="utf-8")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/dataset-prep/crop",
+        json={
+            "source_folder": str(source),
+            "output_folder": str(output),
+            "target": "chest_detail",
+            "recursive": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_folder"] == str(output)
+    assert body["processed_count"] == 1
+    assert body["cropped_count"] == 1
+    assert body["images"][0]["accepted"] is True
+    assert body["images"][0]["output_path"].endswith(".jpg")
+    assert Path(body["images"][0]["output_path"]).is_file()
 
 
 def test_select_reference_images_uses_native_picker_result(tmp_path: Path, monkeypatch) -> None:

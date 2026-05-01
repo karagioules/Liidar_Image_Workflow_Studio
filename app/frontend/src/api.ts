@@ -1,5 +1,8 @@
 import type {
+  ApiKeyStatus,
   CharacterProfile,
+  DatasetPrepRequest,
+  DatasetPrepResponse,
   DatasetScanReport,
   DatasetScanRequest,
   GenerationJobResponse,
@@ -51,6 +54,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   runtime: () => request<RuntimeStatus>("/api/runtime"),
   systemLive: () => request<SystemLiveMetrics>("/api/system/live"),
+  anthropicKeyStatus: () => request<ApiKeyStatus>("/api/settings/anthropic-key"),
+  saveAnthropicKey: (apiKey: string, model = "claude-3-haiku-20240307") =>
+    request<ApiKeyStatus>("/api/settings/anthropic-key", {
+      method: "POST",
+      body: JSON.stringify({ api_key: apiKey, model })
+    }),
+  deleteAnthropicKey: () =>
+    request<ApiKeyStatus>("/api/settings/anthropic-key", {
+      method: "DELETE"
+    }),
   browseFilesystem: (path: string) => {
     const params = new URLSearchParams();
     if (path.trim()) {
@@ -90,6 +103,11 @@ export const api = {
     }),
   scanTraining: (payload: DatasetScanRequest) =>
     request<DatasetScanReport>("/api/training/scan", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  prepDatasetCrops: (payload: DatasetPrepRequest) =>
+    request<DatasetPrepResponse>("/api/dataset-prep/crop", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

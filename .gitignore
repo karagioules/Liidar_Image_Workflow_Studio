@@ -22,3 +22,4 @@ logs/
 .frontend.pid
 config/characters/*.json
 !config/characters/.gitkeep
+config/secrets/

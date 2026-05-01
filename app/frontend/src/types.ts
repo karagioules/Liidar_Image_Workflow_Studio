@@ -5,6 +5,7 @@ export type DatasetType = "body_part" | "body_shape" | "pose" | "style" | "ficti
 export type FacePolicy = "reject_faces" | "redact_faces" | "body_part_crops_only";
 export type SourceRights = "synthetic" | "owned" | "licensed" | "consented";
 export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | "unclear";
+export type DatasetPrepTarget = "chest_detail" | "upper_torso" | "full_body_context";
 
 export interface CharacterProfile {
   id: string;
@@ -193,6 +194,40 @@ export interface DatasetScanReport {
   warnings: string[];
 }
 
+export interface DatasetPrepRequest {
+  source_folder: string;
+  output_folder: string | null;
+  target: DatasetPrepTarget;
+  recursive: boolean;
+  use_ai: boolean;
+  ai_max_images: number;
+  ai_model: string;
+}
+
+export interface DatasetPrepImage {
+  source_path: string;
+  output_path: string | null;
+  width: number;
+  height: number;
+  face_count: number;
+  accepted: boolean;
+  reason: string;
+  method: string;
+  crop_box: number[] | null;
+}
+
+export interface DatasetPrepResponse {
+  output_folder: string;
+  processed_count: number;
+  cropped_count: number;
+  skipped_count: number;
+  ai_guided_count: number;
+  face_guided_count: number;
+  fallback_count: number;
+  warnings: string[];
+  images: DatasetPrepImage[];
+}
+
 export interface TrainingConfigRequest {
   dataset_id: string;
   dataset_path: string;
@@ -225,4 +260,10 @@ export interface TrainerStatus {
   trainer_entrypoint_exists: boolean;
   config_path_exists: boolean;
   warnings: string[];
+}
+
+export interface ApiKeyStatus {
+  provider: string;
+  saved: boolean;
+  model: string;
 }

@@ -70,6 +70,30 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/settings/anthropic-key") && method === "GET") {
+          return jsonResponse({
+            provider: "anthropic",
+            saved: false,
+            model: "claude-3-haiku-20240307"
+          });
+        }
+
+        if (url.endsWith("/api/settings/anthropic-key") && method === "POST") {
+          return jsonResponse({
+            provider: "anthropic",
+            saved: true,
+            model: "claude-3-haiku-20240307"
+          });
+        }
+
+        if (url.endsWith("/api/settings/anthropic-key") && method === "DELETE") {
+          return jsonResponse({
+            provider: "anthropic",
+            saved: false,
+            model: "claude-3-haiku-20240307"
+          });
+        }
+
         if (url.endsWith("/api/characters") && method === "GET") {
           return jsonResponse([character]);
         }
@@ -234,6 +258,32 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/dataset-prep/crop")) {
+          return jsonResponse({
+            output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+            processed_count: 10,
+            cropped_count: 8,
+            skipped_count: 2,
+            ai_guided_count: 3,
+            face_guided_count: 4,
+            fallback_count: 1,
+            warnings: ["1 crop used center fallback because a face/body anchor was not detected; review those outputs manually."],
+            images: [
+              {
+                source_path: "H:\\raw\\one.jpg",
+                output_path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1\\one_chest_detail_0001.jpg",
+                width: 800,
+                height: 1200,
+                face_count: 1,
+                accepted: true,
+                reason: "chest detail crop from Claude AI scan",
+                method: "ai_guided",
+                crop_box: [10, 120, 700, 760]
+              }
+            ]
+          });
+        }
+
         if (url.endsWith("/api/training/config")) {
           return jsonResponse({
             job_id: "job-1",
@@ -284,6 +334,7 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Characters" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Training" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Dataset prep" })).toBeInTheDocument();
   });
 
   it("shows live system usage in the sidebar", async () => {
@@ -479,6 +530,29 @@ describe("App", () => {
     expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3").length).toBeGreaterThan(0);
     expect(screen.getByText("Skipped unreadable image.")).toBeInTheDocument();
+  });
+
+  it("prepares dataset crops with optional Claude key controls", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
+    expect(screen.getByRole("heading", { name: "Dataset prep", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Crop target" })).toHaveTextContent("Chest detail");
+    expect(screen.getByText("No Claude key saved.")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("API key"), "sk-ant-test");
+    await user.click(screen.getByRole("button", { name: /save key/i }));
+    expect(await screen.findByText(/Claude key saved/i)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Use AI scan"));
+    await user.clear(screen.getByLabelText("Source folder"));
+    await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
+    await user.click(screen.getByRole("button", { name: /create crop folder/i }));
+
+    expect(await screen.findByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).toBeInTheDocument();
+    expect(screen.getByText("AI-guided")).toBeInTheDocument();
+    expect(screen.getByText("chest detail crop from Claude AI scan")).toBeInTheDocument();
   });
 
   it("uses backend config path and surfaces trainer warnings", async () => {

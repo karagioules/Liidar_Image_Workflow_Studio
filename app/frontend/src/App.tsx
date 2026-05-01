@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Scissors, Search, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -7,6 +7,8 @@ import type {
   AdultContentSignals,
   AttributeDetail,
   CharacterProfile,
+  DatasetPrepResponse,
+  DatasetPrepTarget,
   DatasetScanReport,
   DatasetType,
   FacePolicy,
@@ -21,7 +23,7 @@ import type {
   VisionTag
 } from "./types";
 
-type TabId = "runtime" | "characters" | "generate" | "training";
+type TabId = "runtime" | "characters" | "generate" | "training" | "prep";
 type TrainingPreset = "fast" | "balanced" | "high_quality";
 
 const blankCharacter: CharacterProfile = {
@@ -54,7 +56,8 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Activity }> = [
   { id: "runtime", label: "Runtime status", icon: Cpu },
   { id: "characters", label: "Characters", icon: UserRound },
   { id: "generate", label: "Generate", icon: Camera },
-  { id: "training", label: "Training", icon: ClipboardList }
+  { id: "training", label: "Training", icon: ClipboardList },
+  { id: "prep", label: "Dataset prep", icon: Scissors }
 ];
 
 const ageCategories: AdultAgeCategory[] = ["adult_18_plus", "adult_21_plus", "adult_25_plus", "adult_30_plus"];
@@ -62,6 +65,7 @@ const generationModes: GenerationMode[] = ["portrait", "full_body", "lifestyle_p
 const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
 const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
+const prepTargets: DatasetPrepTarget[] = ["chest_detail", "upper_torso", "full_body_context"];
 const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
   { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
   { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
@@ -106,6 +110,15 @@ function datasetTypeLabel(value: DatasetType) {
     pose: "Pose library",
     style: "Photo realism / style",
     fictional_face_identity: "Character identity adapter"
+  };
+  return labels[value];
+}
+
+function prepTargetLabel(value: DatasetPrepTarget) {
+  const labels: Record<DatasetPrepTarget, string> = {
+    chest_detail: "Chest detail",
+    upper_torso: "Upper torso",
+    full_body_context: "Full-body context"
   };
   return labels[value];
 }
@@ -156,6 +169,17 @@ function App() {
   const [trainerEntrypoint, setTrainerEntrypoint] = useState("train_network.py");
   const [trainerConfigPath, setTrainerConfigPath] = useState("");
   const [trainerStatus, setTrainerStatus] = useState<TrainerStatus | null>(null);
+  const [prepSourceFolder, setPrepSourceFolder] = useState("");
+  const [prepOutputFolder, setPrepOutputFolder] = useState("");
+  const [prepTarget, setPrepTarget] = useState<DatasetPrepTarget>("chest_detail");
+  const [prepRecursive, setPrepRecursive] = useState(true);
+  const [prepUseAi, setPrepUseAi] = useState(false);
+  const [prepAiMaxImages, setPrepAiMaxImages] = useState(25);
+  const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
+  const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
+  const [anthropicModel, setAnthropicModel] = useState("claude-3-haiku-20240307");
+  const [prepReport, setPrepReport] = useState<DatasetPrepResponse | null>(null);
+  const [isPreparingDataset, setIsPreparingDataset] = useState(false);
 
   useEffect(() => {
     void loadInitialData();
@@ -200,9 +224,11 @@ function App() {
   async function loadInitialData() {
     try {
       setError("");
-      const [runtimeStatus, profiles] = await Promise.all([api.runtime(), api.characters()]);
+      const [runtimeStatus, profiles, keyStatus] = await Promise.all([api.runtime(), api.characters(), api.anthropicKeyStatus()]);
       setRuntime(runtimeStatus);
       setCharacters(profiles);
+      setAnthropicKeySaved(keyStatus.saved);
+      setAnthropicModel(keyStatus.model);
       if (profiles[0]) {
         setSelectedCharacterId(profiles[0].id);
         setEditingCharacter(profiles[0]);
@@ -288,6 +314,70 @@ function App() {
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to select training folder.");
+    }
+  }
+
+  async function selectPrepFolder(kind: "source" | "output") {
+    try {
+      setError("");
+      const result = await api.selectFolder();
+      if (result.folder_path) {
+        if (kind === "source") {
+          setPrepSourceFolder(result.folder_path);
+        } else {
+          setPrepOutputFolder(result.folder_path);
+        }
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to select folder.");
+    }
+  }
+
+  async function runDatasetPrep() {
+    try {
+      setError("");
+      setMessage("");
+      setIsPreparingDataset(true);
+      const report = await api.prepDatasetCrops({
+        source_folder: prepSourceFolder,
+        output_folder: prepOutputFolder.trim() ? prepOutputFolder : null,
+        target: prepTarget,
+        recursive: prepRecursive,
+        use_ai: prepUseAi,
+        ai_max_images: prepAiMaxImages,
+        ai_model: anthropicModel
+      });
+      setPrepReport(report);
+      setPrepOutputFolder(report.output_folder);
+      setMessage(`Dataset prep created ${report.cropped_count} crop${report.cropped_count === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to prep dataset crops.");
+    } finally {
+      setIsPreparingDataset(false);
+    }
+  }
+
+  async function saveAnthropicKey() {
+    try {
+      setError("");
+      const status = await api.saveAnthropicKey(anthropicKeyInput, anthropicModel);
+      setAnthropicKeySaved(status.saved);
+      setAnthropicModel(status.model);
+      setAnthropicKeyInput("");
+      setMessage("Claude API key saved locally.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save Claude API key.");
+    }
+  }
+
+  async function removeAnthropicKey() {
+    try {
+      setError("");
+      const status = await api.deleteAnthropicKey();
+      setAnthropicKeySaved(status.saved);
+      setMessage("Claude API key removed.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to remove Claude API key.");
     }
   }
 
@@ -441,6 +531,33 @@ function App() {
             onScan={scanDataset}
             onCreateConfig={createTrainingConfig}
             onCheckStatus={checkTrainerStatus}
+          />
+        ) : null}
+        {activeTab === "prep" ? (
+          <DatasetPrepPanel
+            sourceFolder={prepSourceFolder}
+            outputFolder={prepOutputFolder}
+            target={prepTarget}
+            recursive={prepRecursive}
+            useAi={prepUseAi}
+            aiMaxImages={prepAiMaxImages}
+            anthropicKeySaved={anthropicKeySaved}
+            anthropicKeyInput={anthropicKeyInput}
+            anthropicModel={anthropicModel}
+            report={prepReport}
+            isPreparing={isPreparingDataset}
+            onSourceFolderChange={setPrepSourceFolder}
+            onOutputFolderChange={setPrepOutputFolder}
+            onTargetChange={setPrepTarget}
+            onRecursiveChange={setPrepRecursive}
+            onUseAiChange={setPrepUseAi}
+            onAiMaxImagesChange={setPrepAiMaxImages}
+            onAnthropicKeyInputChange={setAnthropicKeyInput}
+            onSaveAnthropicKey={() => void saveAnthropicKey()}
+            onRemoveAnthropicKey={() => void removeAnthropicKey()}
+            onSelectSource={() => void selectPrepFolder("source")}
+            onSelectOutput={() => void selectPrepFolder("output")}
+            onRun={() => void runDatasetPrep()}
           />
         ) : null}
       </main>
@@ -684,6 +801,167 @@ function GeneratePanel(props: {
             <div><dt>Steps</dt><dd>{props.recipe.steps}</dd></div>
             <div><dt>CFG</dt><dd>{props.recipe.cfg}</dd></div>
           </dl>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function DatasetPrepPanel(props: {
+  sourceFolder: string;
+  outputFolder: string;
+  target: DatasetPrepTarget;
+  recursive: boolean;
+  useAi: boolean;
+  aiMaxImages: number;
+  anthropicKeySaved: boolean;
+  anthropicKeyInput: string;
+  anthropicModel: string;
+  report: DatasetPrepResponse | null;
+  isPreparing: boolean;
+  onSourceFolderChange: (value: string) => void;
+  onOutputFolderChange: (value: string) => void;
+  onTargetChange: (value: DatasetPrepTarget) => void;
+  onRecursiveChange: (value: boolean) => void;
+  onUseAiChange: (value: boolean) => void;
+  onAiMaxImagesChange: (value: number) => void;
+  onAnthropicKeyInputChange: (value: string) => void;
+  onSaveAnthropicKey: () => void;
+  onRemoveAnthropicKey: () => void;
+  onSelectSource: () => void;
+  onSelectOutput: () => void;
+  onRun: () => void;
+}) {
+  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing;
+  const previewImages = props.report?.images.filter((image) => image.accepted).slice(0, 12) ?? [];
+  return (
+    <section className="training-layout dataset-prep-layout">
+      <div className="panel training-overview">
+        <div className="panel-heading">
+          <h2>Dataset prep</h2>
+          <p>Crop raw folders into cleaner training inputs before creating a global pack.</p>
+        </div>
+        <div className="prep-note">
+          <strong>Detection mode</strong>
+          <span>Uses local face-guided geometry first. Review fallback crops before training.</span>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-heading">
+          <h2>Crop setup</h2>
+          <p>Output folder is optional. If blank, crops are written to Desktop/Liidar_Dataset_Crops.</p>
+        </div>
+        <div className="form-grid two-column">
+          <div className="field-block">
+            <label htmlFor="prep-source-folder">Source folder</label>
+            <div className="folder-picker-row">
+              <input id="prep-source-folder" value={props.sourceFolder} onChange={(event) => props.onSourceFolderChange(event.target.value)} placeholder="Select raw image folder" />
+              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSource}>
+                <FolderOpen aria-hidden="true" />
+                Select folder
+              </button>
+            </div>
+          </div>
+          <div className="field-block">
+            <label htmlFor="prep-output-folder">Output folder</label>
+            <div className="folder-picker-row">
+              <input id="prep-output-folder" value={props.outputFolder} onChange={(event) => props.onOutputFolderChange(event.target.value)} placeholder="Desktop default" />
+              <button type="button" className="secondary-button inline-button" onClick={props.onSelectOutput}>
+                <FolderOpen aria-hidden="true" />
+                Select folder
+              </button>
+            </div>
+          </div>
+          <label>
+            Crop target
+            <select value={props.target} onChange={(event) => props.onTargetChange(event.target.value as DatasetPrepTarget)}>
+              {prepTargets.map((target) => <option key={target} value={target}>{prepTargetLabel(target)}</option>)}
+            </select>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={props.recursive} onChange={(event) => props.onRecursiveChange(event.target.checked)} />
+            Include subfolders
+          </label>
+        </div>
+        <section className="api-key-panel">
+          <div className="panel-heading">
+            <h3>Claude AI scan</h3>
+            <p>Optional. Uses Claude 3 Haiku by default for low-cost vision checks.</p>
+          </div>
+          <div className="form-grid two-column">
+            <label>
+              API key
+              <input
+                type="password"
+                value={props.anthropicKeyInput}
+                onChange={(event) => props.onAnthropicKeyInputChange(event.target.value)}
+                placeholder={props.anthropicKeySaved ? "Saved key active" : "Paste Anthropic API key"}
+              />
+            </label>
+            <label>
+              Max AI images
+              <input
+                type="number"
+                min="0"
+                max="500"
+                value={props.aiMaxImages}
+                onChange={(event) => props.onAiMaxImagesChange(Number(event.target.value))}
+              />
+            </label>
+          </div>
+          <div className="actions compact-actions">
+            <button type="button" className="secondary-button" onClick={props.onSaveAnthropicKey} disabled={!props.anthropicKeyInput.trim()}>
+              <Save aria-hidden="true" />
+              Save key
+            </button>
+            <button type="button" className="secondary-button" onClick={props.onRemoveAnthropicKey} disabled={!props.anthropicKeySaved}>
+              <X aria-hidden="true" />
+              Remove key
+            </button>
+            <label className="check-row inline-check">
+              <input type="checkbox" checked={props.useAi} onChange={(event) => props.onUseAiChange(event.target.checked)} disabled={!props.anthropicKeySaved} />
+              Use AI scan
+            </label>
+          </div>
+          <div className={props.anthropicKeySaved ? "inline-status ok" : "inline-status warning"}>
+            {props.anthropicKeySaved ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+            <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
+          </div>
+        </section>
+        <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
+          <Scissors aria-hidden="true" />
+          {props.isPreparing ? "Preparing crops" : "Create crop folder"}
+        </button>
+      </div>
+
+      {props.report ? (
+        <div className="panel">
+          <div className="panel-heading">
+            <h2>Prep result</h2>
+            <p>{props.report.output_folder}</p>
+          </div>
+          <div className="count-grid">
+            <Metric label="Processed" value={props.report.processed_count} />
+            <Metric label="Cropped" value={props.report.cropped_count} />
+            <Metric label="AI-guided" value={props.report.ai_guided_count} />
+            <Metric label="Face-guided" value={props.report.face_guided_count} />
+            <Metric label="Fallback" value={props.report.fallback_count} />
+          </div>
+          {props.report.warnings.length ? <WarningList warnings={props.report.warnings} /> : null}
+          {previewImages.length ? (
+            <div className="prep-preview-grid">
+              {previewImages.map((image) => (
+                <article className="prep-preview-card" key={image.output_path ?? image.source_path}>
+                  {image.output_path ? <img src={api.thumbnailUrl(image.output_path)} alt="" /> : null}
+                  <div>
+                    <strong>{image.method === "ai_guided" ? "AI-guided crop" : image.method === "face_guided" ? "Face-guided crop" : "Fallback crop"}</strong>
+                    <span>{image.reason}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>

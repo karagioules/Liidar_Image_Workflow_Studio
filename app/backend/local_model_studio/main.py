@@ -8,8 +8,10 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from local_model_studio.api_key_store import ApiKeyStore
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
+from local_model_studio.dataset_prepper import prepare_dataset_crops
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
 from local_model_studio.local_image_tagger import local_tagger_from_workspace
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
@@ -20,6 +22,10 @@ from local_model_studio.reference_analyzer import analyze_references
 from local_model_studio.runtime_check import build_live_system_metrics, build_runtime_status
 from local_model_studio.schemas import (
     CharacterProfile,
+    ApiKeyPayload,
+    ApiKeyStatus,
+    DatasetPrepRequest,
+    DatasetPrepResponse,
     GenerationJobResponse,
     GenerationRequest,
     PathBrowserResponse,
@@ -62,6 +68,7 @@ def create_app(
     workspace_paths = paths or WorkspacePaths(default_workspace_root())
     profiles = ProfileStore(workspace_paths)
     training = TrainingStore(workspace_paths)
+    api_keys = ApiKeyStore(workspace_paths.root)
     comfy = comfy_client or ComfyClient()
 
     app = FastAPI(title="Local Model Studio API")
@@ -85,6 +92,18 @@ def create_app(
     @app.get("/api/system/live", response_model=SystemLiveMetrics)
     def live_system_metrics() -> SystemLiveMetrics:
         return build_live_system_metrics()
+
+    @app.get("/api/settings/anthropic-key", response_model=ApiKeyStatus)
+    def anthropic_key_status() -> ApiKeyStatus:
+        return api_keys.status()
+
+    @app.post("/api/settings/anthropic-key", response_model=ApiKeyStatus)
+    def save_anthropic_key(payload: ApiKeyPayload) -> ApiKeyStatus:
+        return api_keys.save(payload)
+
+    @app.delete("/api/settings/anthropic-key", response_model=ApiKeyStatus)
+    def delete_anthropic_key() -> ApiKeyStatus:
+        return api_keys.delete()
 
     @app.get("/api/filesystem/browse", response_model=PathBrowserResponse)
     def browse_local_filesystem(path: str | None = None) -> PathBrowserResponse:
@@ -189,6 +208,13 @@ def create_app(
     def scan_training_dataset(request: DatasetScanRequest) -> DatasetScanReport:
         try:
             return scan_dataset(request, output_root=workspace_paths.root / "datasets")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/dataset-prep/crop", response_model=DatasetPrepResponse)
+    def prep_dataset_crops(request: DatasetPrepRequest) -> DatasetPrepResponse:
+        try:
+            return prepare_dataset_crops(request, anthropic_api_key=api_keys.api_key() if request.use_ai else None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
