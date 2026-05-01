@@ -354,7 +354,7 @@ def test_dataset_prep_ai_chest_crop_requires_breast_boxes() -> None:
     assert crop is None
 
 
-def test_dataset_prep_ai_chest_crop_requires_nipple_boxes() -> None:
+def test_dataset_prep_ai_chest_crop_accepts_full_breast_boxes_without_nipple_metadata() -> None:
     crop = dataset_prepper._crop_box_from_ai_response(
         {
             "visible_target": True,
@@ -366,7 +366,30 @@ def test_dataset_prep_ai_chest_crop_requires_nipple_boxes() -> None:
         "chest_detail",
     )
 
-    assert crop is None
+    assert crop is not None
+    left, top, right, bottom = crop
+    assert left <= 180
+    assert right >= 780
+    assert top <= 336
+    assert bottom >= 744
+
+
+def test_dataset_prep_ai_chest_crop_accepts_tall_side_view_breast_region() -> None:
+    crop = dataset_prepper._crop_box_from_ai_response(
+        {
+            "visible_target": True,
+            "breast_boxes": [[0.36, 0.18, 0.68, 0.74]],
+            "nipple_boxes": [[0.52, 0.55, 0.58, 0.61]],
+            "face_box": [0.26, 0.0, 0.76, 0.17],
+        },
+        1000,
+        1400,
+        "chest_detail",
+    )
+
+    assert crop is not None
+    assert crop[1] >= 235
+    assert crop[3] <= 1160
 
 
 def test_dataset_prep_ai_chest_crop_includes_full_breasts_and_nipples() -> None:

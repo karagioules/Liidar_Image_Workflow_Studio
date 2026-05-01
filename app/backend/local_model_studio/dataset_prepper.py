@@ -458,9 +458,8 @@ def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: st
     if target == "chest_detail":
         if not breast_boxes:
             return None
-        if not nipple_boxes:
-            return None
-        crop_box = _breast_region_crop(breast_boxes + nipple_boxes, face_box)
+        crop_basis = breast_boxes + nipple_boxes
+        crop_box = _breast_region_crop(crop_basis, face_box)
         if not _is_tight_chest_region(crop_box):
             return None
         return _normalized_box_to_pixels(crop_box, width, height)
@@ -562,9 +561,11 @@ def _is_tight_chest_region(box: NormalizedBox) -> bool:
     height = bottom - top
     if width <= 0 or height <= 0:
         return False
-    if height > 0.52:
+    if height > 0.72:
         return False
-    if height / width > 1.25:
+    if height / width > 2.0:
+        return False
+    if width > 0.92 and height > 0.58:
         return False
     return True
 
