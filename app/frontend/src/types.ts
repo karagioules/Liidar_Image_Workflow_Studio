@@ -222,7 +222,9 @@ export interface DatasetPrepResponse {
   processed_count: number;
   cropped_count: number;
   skipped_count: number;
+  ai_attempted_count: number;
   ai_guided_count: number;
+  ai_failed_count: number;
   face_guided_count: number;
   fallback_count: number;
   warnings: string[];
@@ -236,7 +238,9 @@ export interface DatasetPrepJobStatus {
   processed_count: number;
   cropped_count: number;
   skipped_count: number;
+  ai_attempted_count: number;
   ai_guided_count: number;
+  ai_failed_count: number;
   face_guided_count: number;
   fallback_count: number;
   active_file: string | null;

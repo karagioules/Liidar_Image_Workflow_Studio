@@ -227,7 +227,9 @@ class DatasetPrepResponse(BaseModel):
     processed_count: int
     cropped_count: int
     skipped_count: int
+    ai_attempted_count: int = 0
     ai_guided_count: int = 0
+    ai_failed_count: int = 0
     face_guided_count: int
     fallback_count: int
     warnings: list[str] = Field(default_factory=list)
@@ -241,7 +243,9 @@ class DatasetPrepJobStatus(BaseModel):
     processed_count: int = 0
     cropped_count: int = 0
     skipped_count: int = 0
+    ai_attempted_count: int = 0
     ai_guided_count: int = 0
+    ai_failed_count: int = 0
     face_guided_count: int = 0
     fallback_count: int = 0
     active_file: str | None = None

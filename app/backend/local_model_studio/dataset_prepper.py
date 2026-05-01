@@ -41,7 +41,9 @@ def prepare_dataset_crops(
 
     images: list[DatasetPrepImage] = []
     warnings: list[str] = []
+    ai_attempted_count = 0
     ai_guided_count = 0
+    ai_failed_count = 0
     face_guided_count = 0
     fallback_count = 0
     cancelled = False
@@ -52,7 +54,9 @@ def prepare_dataset_crops(
         processed_count=0,
         cropped_count=0,
         skipped_count=0,
+        ai_attempted_count=0,
         ai_guided_count=0,
+        ai_failed_count=0,
         face_guided_count=0,
         fallback_count=0,
         active_file=None,
@@ -69,7 +73,9 @@ def prepare_dataset_crops(
             processed_count=len(images),
             cropped_count=sum(1 for image in images if image.accepted),
             skipped_count=sum(1 for image in images if not image.accepted),
+            ai_attempted_count=ai_attempted_count,
             ai_guided_count=ai_guided_count,
+            ai_failed_count=ai_failed_count,
             face_guided_count=face_guided_count,
             fallback_count=fallback_count,
             active_file=str(image_path),
@@ -83,6 +89,7 @@ def prepare_dataset_crops(
                 method = "skipped"
                 ai_attempted = request.use_ai and index <= request.ai_max_images
                 if ai_attempted:
+                    ai_attempted_count += 1
                     if not anthropic_api_key:
                         raise ValueError("Claude API key is required when AI scanning is enabled.")
                     ai_crop_box, ai_warning = _claude_crop_box(
@@ -98,6 +105,7 @@ def prepare_dataset_crops(
                         method = "ai_guided"
                 if crop_box is None:
                     if ai_attempted:
+                        ai_failed_count += 1
                         images.append(
                             DatasetPrepImage(
                                 source_path=str(image_path),
@@ -105,8 +113,8 @@ def prepare_dataset_crops(
                                 height=image.height,
                                 face_count=0,
                                 accepted=False,
-                                reason="Claude AI did not return a usable tight target crop",
-                                method="skipped",
+                                reason="Claude AI attempted but did not return a usable tight target crop",
+                                method="ai_failed",
                                 crop_box=None,
                                 output_path=None,
                             )
@@ -175,7 +183,9 @@ def prepare_dataset_crops(
             processed_count=len(images),
             cropped_count=sum(1 for image in images if image.accepted),
             skipped_count=sum(1 for image in images if not image.accepted),
+            ai_attempted_count=ai_attempted_count,
             ai_guided_count=ai_guided_count,
+            ai_failed_count=ai_failed_count,
             face_guided_count=face_guided_count,
             fallback_count=fallback_count,
             active_file=str(image_path),
@@ -196,7 +206,9 @@ def prepare_dataset_crops(
         processed_count=len(images),
         cropped_count=accepted_count,
         skipped_count=skipped_count,
+        ai_attempted_count=ai_attempted_count,
         ai_guided_count=ai_guided_count,
+        ai_failed_count=ai_failed_count,
         face_guided_count=face_guided_count,
         fallback_count=fallback_count,
         warnings=warnings,
@@ -208,7 +220,9 @@ def prepare_dataset_crops(
         processed_count=response.processed_count,
         cropped_count=response.cropped_count,
         skipped_count=response.skipped_count,
+        ai_attempted_count=response.ai_attempted_count,
         ai_guided_count=response.ai_guided_count,
+        ai_failed_count=response.ai_failed_count,
         face_guided_count=response.face_guided_count,
         fallback_count=response.fallback_count,
         active_file=None,

@@ -49,7 +49,9 @@ class _DatasetPrepJob:
         self.processed_count = 0
         self.cropped_count = 0
         self.skipped_count = 0
+        self.ai_attempted_count = 0
         self.ai_guided_count = 0
+        self.ai_failed_count = 0
         self.face_guided_count = 0
         self.fallback_count = 0
         self.active_file: str | None = None
@@ -79,7 +81,9 @@ class _DatasetPrepJob:
                 processed_count=self.processed_count,
                 cropped_count=self.cropped_count,
                 skipped_count=self.skipped_count,
+                ai_attempted_count=self.ai_attempted_count,
                 ai_guided_count=self.ai_guided_count,
+                ai_failed_count=self.ai_failed_count,
                 face_guided_count=self.face_guided_count,
                 fallback_count=self.fallback_count,
                 active_file=self.active_file,
@@ -124,7 +128,9 @@ class _DatasetPrepJob:
                 "processed_count",
                 "cropped_count",
                 "skipped_count",
+                "ai_attempted_count",
                 "ai_guided_count",
+                "ai_failed_count",
                 "face_guided_count",
                 "fallback_count",
             ):

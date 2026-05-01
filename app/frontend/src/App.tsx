@@ -1018,7 +1018,11 @@ function DatasetPrepPanel(props: {
               <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} />
             </div>
             <div className="prep-progress-meta">
-              <span>{props.job.use_ai ? `AI scan on: ${props.job.ai_guided_count} AI-guided crop${props.job.ai_guided_count === 1 ? "" : "s"}` : "AI scan off: local cropping only"}</span>
+              <span>
+                {props.job.use_ai
+                  ? `AI scan on: ${props.job.ai_attempted_count} attempted, ${props.job.ai_guided_count} succeeded, ${props.job.ai_failed_count} failed`
+                  : "AI scan off: local cropping only"}
+              </span>
               <span>{props.job.fallback_count} fallback crop{props.job.fallback_count === 1 ? "" : "s"}</span>
               {props.job.active_file ? <span>Current: {props.job.active_file}</span> : null}
               {props.job.error ? <span className="error-text">{props.job.error}</span> : null}
@@ -1036,7 +1040,9 @@ function DatasetPrepPanel(props: {
           <div className="count-grid">
             <Metric label="Processed" value={props.report.processed_count} />
             <Metric label="Cropped" value={props.report.cropped_count} />
+            <Metric label="AI attempted" value={props.report.ai_attempted_count} />
             <Metric label="AI-guided" value={props.report.ai_guided_count} />
+            <Metric label="AI failed" value={props.report.ai_failed_count} />
             <Metric label="Face-guided" value={props.report.face_guided_count} />
             <Metric label="Fallback" value={props.report.fallback_count} />
           </div>

@@ -320,8 +320,10 @@ def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path
 
     assert report.cropped_count == 0
     assert report.skipped_count == 1
+    assert report.ai_attempted_count == 1
+    assert report.ai_failed_count == 1
     assert report.fallback_count == 0
-    assert report.images[0].method == "skipped"
+    assert report.images[0].method == "ai_failed"
 
 
 def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatch) -> None:
@@ -338,7 +340,9 @@ def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatc
                     "processed_count": 1,
                     "cropped_count": 1,
                     "skipped_count": 0,
+                    "ai_attempted_count": 1,
                     "ai_guided_count": 1,
+                    "ai_failed_count": 0,
                     "face_guided_count": 0,
                     "fallback_count": 0,
                     "active_file": str(source / "body.jpg"),
@@ -350,7 +354,9 @@ def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatc
             processed_count=1,
             cropped_count=1,
             skipped_count=0,
+            ai_attempted_count=1,
             ai_guided_count=1,
+            ai_failed_count=0,
             face_guided_count=0,
             fallback_count=0,
             warnings=[],
@@ -385,7 +391,9 @@ def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatc
     assert body["total_count"] == 1
     assert body["processed_count"] == 1
     assert body["cropped_count"] == 1
+    assert body["ai_attempted_count"] == 1
     assert body["ai_guided_count"] == 1
+    assert body["ai_failed_count"] == 0
     assert body["result"]["output_folder"] == str(output)
 
 
