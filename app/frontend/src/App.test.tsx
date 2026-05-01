@@ -467,7 +467,7 @@ describe("App", () => {
     expect(screen.getByText("Global improvement training")).toBeInTheDocument();
     expect(screen.getByLabelText("Training folder")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Improvement type" })).toHaveTextContent("Body proportions");
-    expect(screen.getByLabelText("Data rights")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Data rights")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /select folder/i }));
     expect(await screen.findByDisplayValue("H:\\photos\\training-pack")).toBeInTheDocument();

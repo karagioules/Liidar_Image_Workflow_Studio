@@ -15,7 +15,6 @@ import type {
   QualityPreset,
   ReferenceAnalysisResponse,
   RuntimeStatus,
-  SourceRights,
   SystemLiveMetrics,
   TrainerStatus,
   TrainingJobConfig,
@@ -63,7 +62,6 @@ const generationModes: GenerationMode[] = ["portrait", "full_body", "lifestyle_p
 const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
 const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
-const sourceRights: SourceRights[] = ["synthetic", "owned", "licensed", "consented"];
 const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
   { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
   { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
@@ -147,7 +145,6 @@ function App() {
   const [sourceFolder, setSourceFolder] = useState("");
   const [datasetType, setDatasetType] = useState<DatasetType>("body_shape");
   const [facePolicy, setFacePolicy] = useState<FacePolicy>("reject_faces");
-  const [rights, setRights] = useState<SourceRights>("synthetic");
   const [scanReport, setScanReport] = useState<DatasetScanReport | null>(null);
   const [datasetPath, setDatasetPath] = useState("");
   const [baseModelPath, setBaseModelPath] = useState("models/sdxl_base_1.0.safetensors");
@@ -270,7 +267,7 @@ function App() {
         dataset_type: datasetType,
         face_policy: facePolicy,
         character_id: null,
-        source_rights: rights,
+        source_rights: "owned",
         tags: []
       });
       setScanReport(report);
@@ -417,7 +414,6 @@ function App() {
             sourceFolder={sourceFolder}
             datasetType={datasetType}
             facePolicy={facePolicy}
-            rights={rights}
             trainingPreset={trainingPreset}
             scanReport={scanReport}
             datasetPath={datasetPath}
@@ -433,7 +429,6 @@ function App() {
             onSourceFolderChange={setSourceFolder}
             onDatasetTypeChange={setDatasetType}
             onFacePolicyChange={setFacePolicy}
-            onRightsChange={setRights}
             onTrainingPresetChange={setTrainingPreset}
             onDatasetPathChange={setDatasetPath}
             onBaseModelPathChange={setBaseModelPath}
@@ -700,7 +695,6 @@ function TrainingPanel(props: {
   sourceFolder: string;
   datasetType: DatasetType;
   facePolicy: FacePolicy;
-  rights: SourceRights;
   trainingPreset: TrainingPreset;
   scanReport: DatasetScanReport | null;
   datasetPath: string;
@@ -716,7 +710,6 @@ function TrainingPanel(props: {
   onSourceFolderChange: (value: string) => void;
   onDatasetTypeChange: (value: DatasetType) => void;
   onFacePolicyChange: (value: FacePolicy) => void;
-  onRightsChange: (value: SourceRights) => void;
   onTrainingPresetChange: (value: TrainingPreset) => void;
   onDatasetPathChange: (value: string) => void;
   onBaseModelPathChange: (value: string) => void;
@@ -776,12 +769,6 @@ function TrainingPanel(props: {
             Improvement type
             <select value={props.datasetType} onChange={(event) => props.onDatasetTypeChange(event.target.value as DatasetType)}>
               {datasetTypes.map((item) => <option key={item} value={item}>{datasetTypeLabel(item)}</option>)}
-            </select>
-          </label>
-          <label>
-            Data rights
-            <select value={props.rights} onChange={(event) => props.onRightsChange(event.target.value as SourceRights)}>
-              {sourceRights.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
             </select>
           </label>
         </div>
