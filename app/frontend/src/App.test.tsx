@@ -318,27 +318,21 @@ describe("App", () => {
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
 
     expect(screen.getByRole("button", { name: /analyze references/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /create draft from references/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /create draft from references/i })).not.toBeInTheDocument();
   });
 
-  it("creates a draft character profile from reference paths", async () => {
+  it("keeps the character workflow focused on reference analysis", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.clear(await screen.findByLabelText("Display name"));
     await user.type(
       screen.getByLabelText("Reference image paths"),
       "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png\nH:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-57-43.png"
     );
-    await user.click(screen.getByRole("button", { name: /create draft from references/i }));
 
-    expect(screen.getByDisplayValue("Marianna")).toBeInTheDocument();
-    expect(screen.getByText("Quick draft filled")).toBeInTheDocument();
-    expect(screen.getByText(/does not inspect image pixels/i)).toBeInTheDocument();
-    await user.click(screen.getByText("Advanced profile controls"));
-    expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("fictional adult face");
-    expect((screen.getByLabelText("Style notes") as HTMLTextAreaElement).value).toContain("reference-guided");
+    expect(screen.getByRole("button", { name: /analyze references/i })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /create draft from references/i })).not.toBeInTheDocument();
   });
 
   it("selects reference images from the native Windows picker control", async () => {

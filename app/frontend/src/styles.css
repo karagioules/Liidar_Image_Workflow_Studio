@@ -945,49 +945,6 @@ textarea {
   margin-top: 0;
 }
 
-.draft-result {
-  display: grid;
-  gap: 10px;
-  padding: 13px;
-  border: 1px solid #225c4b;
-  border-radius: 8px;
-  background: #0e2a22;
-  color: #c6f6d9;
-}
-
-.draft-result div:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.draft-result svg {
-  width: 18px;
-  height: 18px;
-  color: #83e6b0;
-}
-
-.draft-result p {
-  margin: 0;
-  color: #9bd8b8;
-  line-height: 1.45;
-}
-
-.draft-field-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.draft-field-list span {
-  padding: 6px 9px;
-  border-radius: 999px;
-  background: #10382c;
-  color: #95efbb;
-  font-size: 0.78rem;
-  font-weight: 750;
-}
-
 .recipe-box {
   margin-top: 18px;
   padding-top: 16px;

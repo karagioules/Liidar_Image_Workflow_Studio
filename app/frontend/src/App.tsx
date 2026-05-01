@@ -97,38 +97,6 @@ function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
 }
 
-function displayNameFromReferencePaths(paths: string[]): string {
-  const firstPath = paths[0] ?? "";
-  const parts = firstPath.split(/[\\/]+/).filter(Boolean);
-  const fileName = parts[parts.length - 1] ?? "New character";
-  const parent = parts[parts.length - 2];
-  if (parent && !["models", "ai faces", "free_posts", "may2025"].includes(parent.toLowerCase())) {
-    return parent.replace(/[_-]+/g, " ");
-  }
-  return fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
-}
-
-function draftProfileFromReferences(profile: CharacterProfile): CharacterProfile {
-  const paths = profile.reference_images;
-  const referenceCount = paths.length;
-  const name = profile.display_name.trim() || displayNameFromReferencePaths(paths);
-  const referenceNote = referenceCount > 1 ? `${referenceCount} reference images` : "1 reference image";
-  return {
-    ...profile,
-    display_name: name,
-    age_category: profile.age_category || "adult_25_plus",
-    face_summary: `fictional adult face identity guided by ${referenceNote}; keep the same face structure, expression style, and natural skin texture`,
-    hair: "match the reference images for hair color, length, volume, and styling",
-    eyes: "match the reference images for eye shape and color",
-    skin_tone: "match the reference images for natural skin tone and texture",
-    body_shape: "match the reference images for believable adult body proportions and posture",
-    chest: "match the reference images for natural adult body shape",
-    grooming: "match the reference images; keep grooming realistic and consistent",
-    style_notes: "reference-guided believable still photo style with natural camera lighting, casual realism, and no overpolished AI look",
-    negative_notes: "plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike"
-  };
-}
-
 function labelize(value: string) {
   return value.replace(/_/g, " ");
 }
@@ -561,32 +529,19 @@ function CharactersPanel(props: {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onNew, onChange, onSave } = props;
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
-  const [draftMessage, setDraftMessage] = useState("");
   const [analysisByCharacterId, setAnalysisByCharacterId] = useState<Record<string, ReferenceAnalysisResponse>>({});
   const currentAnalysis = analysisByCharacterId[editingCharacter.id] ?? null;
   useEffect(() => {
     setAnalysisError("");
-    setDraftMessage("");
   }, [editingCharacter.id]);
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
   const updateReferences = (paths: string[]) => {
-    setDraftMessage("");
     setAnalysisByCharacterId((current) => {
       const next = { ...current };
       delete next[editingCharacter.id];
       return next;
     });
     onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
-  };
-  const createDraft = () => {
-    if (!editingCharacter.reference_images.length) {
-      return;
-    }
-    const draft = draftProfileFromReferences(editingCharacter);
-    onChange(draft);
-    setDraftMessage(
-      `Quick draft filled ${draft.reference_images.length} reference-based profile fields. Open Advanced profile controls to review or edit them.`
-    );
   };
   const analyzeReferences = async () => {
     if (!editingCharacter.reference_images.length) {
@@ -595,7 +550,6 @@ function CharactersPanel(props: {
     try {
       setIsAnalyzing(true);
       setAnalysisError("");
-      setDraftMessage("");
       const analyzed = await api.analyzeReferences(editingCharacter);
       setAnalysisByCharacterId((current) => ({ ...current, [editingCharacter.id]: analyzed }));
       onChange({ ...editingCharacter, ...analyzed, reference_images: analyzed.reference_images ?? editingCharacter.reference_images });
@@ -646,24 +600,7 @@ function CharactersPanel(props: {
             <Search aria-hidden="true" />
             {isAnalyzing ? "Analyzing" : "Analyze references"}
           </button>
-          <button type="button" className="secondary-button" onClick={createDraft} disabled={!editingCharacter.reference_images.length}>
-            <Search aria-hidden="true" />
-            Create draft from references
-          </button>
         </div>
-        {draftMessage ? (
-          <section className="draft-result" aria-live="polite">
-            <div>
-              <CheckCircle2 aria-hidden="true" />
-              <strong>Quick draft filled</strong>
-            </div>
-            <p>{draftMessage}</p>
-            <p>It does not inspect image pixels. Run Analyze references for real local vision analysis.</p>
-            <div className="draft-field-list">
-              {["Face", "Hair", "Eyes", "Skin", "Body", "Chest", "Grooming", "Style"].map((item) => <span key={item}>{item}</span>)}
-            </div>
-          </section>
-        ) : null}
         <details className="advanced-fields">
           <summary>Advanced profile controls</summary>
           <div className="form-grid inner-grid">
