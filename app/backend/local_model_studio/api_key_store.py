@@ -6,7 +6,11 @@ from pathlib import Path
 from local_model_studio.schemas import ApiKeyPayload, ApiKeyStatus
 
 
-DEFAULT_ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+RETIRED_MODEL_REPLACEMENTS = {
+    "claude-3-haiku-20240307": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-haiku-20241022": DEFAULT_ANTHROPIC_MODEL,
+}
 
 
 class ApiKeyStore:
@@ -19,13 +23,13 @@ class ApiKeyStore:
         return ApiKeyStatus(
             provider="anthropic",
             saved=saved,
-            model=str(data.get("model") or DEFAULT_ANTHROPIC_MODEL) if saved else DEFAULT_ANTHROPIC_MODEL,
+            model=_active_model(str(data.get("model") or DEFAULT_ANTHROPIC_MODEL)) if saved else DEFAULT_ANTHROPIC_MODEL,
         )
 
     def save(self, payload: ApiKeyPayload) -> ApiKeyStatus:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
-            json.dumps({"api_key": payload.api_key.strip(), "model": payload.model.strip() or DEFAULT_ANTHROPIC_MODEL}, indent=2),
+            json.dumps({"api_key": payload.api_key.strip(), "model": _active_model(payload.model.strip() or DEFAULT_ANTHROPIC_MODEL)}, indent=2),
             encoding="utf-8",
         )
         return self.status()
@@ -50,3 +54,7 @@ class ApiKeyStore:
         except json.JSONDecodeError:
             return {}
         return data if isinstance(data, dict) else {}
+
+
+def _active_model(model: str) -> str:
+    return RETIRED_MODEL_REPLACEMENTS.get(model, model)

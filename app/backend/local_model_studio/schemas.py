@@ -207,7 +207,7 @@ class DatasetPrepRequest(BaseModel):
     recursive: bool = True
     use_ai: bool = False
     ai_max_images: int = Field(default=500, ge=0, le=500)
-    ai_model: str = Field(default="claude-3-haiku-20240307", max_length=120)
+    ai_model: str = Field(default="claude-haiku-4-5-20251001", max_length=120)
 
 
 class DatasetPrepImage(BaseModel):
@@ -275,7 +275,7 @@ class ApiKeyTestResponse(BaseModel):
 
 class ApiKeyPayload(BaseModel):
     api_key: str = Field(min_length=1, max_length=400)
-    model: str = Field(default="claude-3-haiku-20240307", max_length=120)
+    model: str = Field(default="claude-haiku-4-5-20251001", max_length=120)
 
 
 class GenerationJobResponse(BaseModel):

@@ -179,7 +179,7 @@ function App() {
   const [prepAiMaxImages, setPrepAiMaxImages] = useState(500);
   const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
-  const [anthropicModel, setAnthropicModel] = useState("claude-3-haiku-20240307");
+  const [anthropicModel, setAnthropicModel] = useState("claude-haiku-4-5-20251001");
   const [anthropicKeyTest, setAnthropicKeyTest] = useState<ApiKeyTestResponse | null>(null);
   const [prepReport, setPrepReport] = useState<DatasetPrepResponse | null>(null);
   const [prepJob, setPrepJob] = useState<DatasetPrepJobStatus | null>(null);

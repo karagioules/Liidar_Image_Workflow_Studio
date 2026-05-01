@@ -103,7 +103,7 @@ def test_anthropic_key_routes_save_status_and_delete(tmp_path: Path) -> None:
     assert initial.json()["saved"] is False
     assert saved.status_code == 200
     assert saved.json()["saved"] is True
-    assert saved.json()["model"] == "claude-3-haiku-20240307"
+    assert saved.json()["model"] == "claude-haiku-4-5-20251001"
     assert removed.status_code == 200
     assert removed.json()["saved"] is False
 

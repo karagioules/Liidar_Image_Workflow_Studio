@@ -74,7 +74,7 @@ describe("App", () => {
           return jsonResponse({
             provider: "anthropic",
             saved: false,
-            model: "claude-3-haiku-20240307"
+            model: "claude-haiku-4-5-20251001"
           });
         }
 
@@ -82,7 +82,7 @@ describe("App", () => {
           return jsonResponse({
             provider: "anthropic",
             saved: true,
-            model: "claude-3-haiku-20240307"
+            model: "claude-haiku-4-5-20251001"
           });
         }
 
@@ -90,7 +90,7 @@ describe("App", () => {
           return jsonResponse({
             provider: "anthropic",
             saved: false,
-            model: "claude-3-haiku-20240307"
+            model: "claude-haiku-4-5-20251001"
           });
         }
 
@@ -99,7 +99,7 @@ describe("App", () => {
             provider: "anthropic",
             ok: false,
             status_code: 404,
-            model: "claude-3-haiku-20240307",
+            model: "claude-haiku-4-5-20251001",
             message: "404 Not Found - not_found_error: model not found"
           });
         }

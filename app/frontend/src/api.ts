@@ -57,7 +57,7 @@ export const api = {
   runtime: () => request<RuntimeStatus>("/api/runtime"),
   systemLive: () => request<SystemLiveMetrics>("/api/system/live"),
   anthropicKeyStatus: () => request<ApiKeyStatus>("/api/settings/anthropic-key"),
-  saveAnthropicKey: (apiKey: string, model = "claude-3-haiku-20240307") =>
+  saveAnthropicKey: (apiKey: string, model = "claude-haiku-4-5-20251001") =>
     request<ApiKeyStatus>("/api/settings/anthropic-key", {
       method: "POST",
       body: JSON.stringify({ api_key: apiKey, model })
