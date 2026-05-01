@@ -14,6 +14,7 @@ GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "r
 SeedStrategy = Literal["locked", "vary", "reuse_last"]
 VisibilityLevel = Literal["clear", "partial", "covered", "not_visible", "unclear"]
 DatasetPrepTarget = Literal["chest_detail", "upper_torso", "full_body_context"]
+DatasetPrepScanMode = Literal["local", "claude", "off"]
 DatasetPrepJobState = Literal["queued", "running", "cancelling", "cancelled", "completed", "failed"]
 
 
@@ -205,9 +206,17 @@ class DatasetPrepRequest(BaseModel):
     output_folder: Path | None = None
     target: DatasetPrepTarget = "chest_detail"
     recursive: bool = True
+    scan_mode: DatasetPrepScanMode | None = None
     use_ai: bool = False
     ai_max_images: int = Field(default=100, ge=0, le=500)
     ai_model: str = Field(default="claude-haiku-4-5-20251001", max_length=120)
+
+    def effective_scan_mode(self) -> DatasetPrepScanMode:
+        if self.scan_mode is not None:
+            return self.scan_mode
+        if self.use_ai:
+            return "claude"
+        return "local"
 
 
 class DatasetPrepImage(BaseModel):
@@ -250,6 +259,7 @@ class DatasetPrepJobStatus(BaseModel):
     fallback_count: int = 0
     active_file: str | None = None
     output_folder: str | None = None
+    scan_mode: DatasetPrepScanMode = "local"
     use_ai: bool = False
     ai_max_images: int = 0
     cancel_requested: bool = False

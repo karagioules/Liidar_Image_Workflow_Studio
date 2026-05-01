@@ -283,6 +283,7 @@ describe("App", () => {
             fallback_count: 0,
             active_file: "H:\\raw\\one.jpg",
             output_folder: null,
+            scan_mode: "claude",
             use_ai: true,
             ai_max_images: 25,
             cancel_requested: false,
@@ -306,6 +307,7 @@ describe("App", () => {
             fallback_count: 1,
             active_file: null,
             output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+            scan_mode: "claude",
             use_ai: true,
             ai_max_images: 25,
             cancel_requested: false,
@@ -593,15 +595,16 @@ describe("App", () => {
     await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
     expect(screen.getByRole("heading", { name: "Dataset prep", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Crop target" })).toHaveTextContent("Chest detail");
-    expect(screen.getByText("No Claude key saved.")).toBeInTheDocument();
+    expect(screen.getByText("Local AI scanning is free and runs on this PC.")).toBeInTheDocument();
 
+    await user.selectOptions(screen.getByLabelText("Scanner"), "claude");
+    expect(screen.getByText("No Claude key saved.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("API key"), "sk-ant-test");
     await user.click(screen.getByRole("button", { name: /save key/i }));
     expect(await screen.findByText(/Claude key saved/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /test key/i }));
     expect((await screen.findAllByText(/model not found/i)).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByLabelText("Use AI scan"));
     await user.clear(screen.getByLabelText("Source folder"));
     await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
     await user.click(screen.getByRole("button", { name: /create crop folder/i }));
@@ -609,7 +612,7 @@ describe("App", () => {
     expect(await screen.findByRole("progressbar", { name: /dataset prep progress/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
     expect(await screen.findByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).toBeInTheDocument();
-    expect(screen.getByText("AI-guided")).toBeInTheDocument();
+    expect(screen.getByText("Claude crop")).toBeInTheDocument();
     expect(screen.getByText("chest detail crop from Claude AI scan")).toBeInTheDocument();
   });
 

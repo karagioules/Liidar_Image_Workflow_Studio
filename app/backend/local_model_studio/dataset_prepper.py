@@ -7,12 +7,13 @@ import re
 from datetime import datetime
 from pathlib import Path
 from threading import Event
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import httpx
 from PIL import Image, UnidentifiedImageError
 
 from local_model_studio.file_browser import IMAGE_SUFFIXES
+from local_model_studio.local_crop_detector import LocalCropDetection, LocalCropDetectorUnavailable, local_crop_detector
 from local_model_studio.schemas import DatasetPrepImage, DatasetPrepRequest, DatasetPrepResponse
 
 
@@ -47,6 +48,7 @@ def prepare_dataset_crops(
     face_guided_count = 0
     fallback_count = 0
     cancelled = False
+    scan_mode = request.effective_scan_mode()
 
     _report_progress(
         progress_callback,
@@ -87,22 +89,25 @@ def prepare_dataset_crops(
                 faces: list[FaceBox] = []
                 crop_box: CropBox | None = None
                 method = "skipped"
-                ai_attempted = request.use_ai and index <= request.ai_max_images
+                ai_attempted = scan_mode in {"local", "claude"} and (scan_mode == "local" or index <= request.ai_max_images)
                 if ai_attempted:
                     ai_attempted_count += 1
-                    if not anthropic_api_key:
-                        raise ValueError("Claude API key is required when AI scanning is enabled.")
-                    ai_crop_box, ai_warning = _claude_crop_box(
-                        image,
-                        request.target,
-                        anthropic_api_key=anthropic_api_key,
-                        model=request.ai_model,
-                    )
+                    if scan_mode == "local":
+                        ai_crop_box, ai_warning = _local_ai_crop_box(image_path, image.size, request.target)
+                    else:
+                        if not anthropic_api_key:
+                            raise ValueError("Claude API key is required when Claude scanning is enabled.")
+                        ai_crop_box, ai_warning = _claude_crop_box(
+                            image,
+                            request.target,
+                            anthropic_api_key=anthropic_api_key,
+                            model=request.ai_model,
+                        )
                     if ai_warning and ai_warning not in warnings:
                         warnings.append(ai_warning)
                     if ai_crop_box is not None:
                         crop_box = ai_crop_box
-                        method = "ai_guided"
+                        method = "local_ai" if scan_mode == "local" else "ai_guided"
                 if crop_box is None:
                     if ai_attempted:
                         ai_failed_count += 1
@@ -113,8 +118,12 @@ def prepare_dataset_crops(
                                 height=image.height,
                                 face_count=0,
                                 accepted=False,
-                                reason="Claude AI attempted but did not return a usable tight target crop",
-                                method="ai_failed",
+                                reason=(
+                                    "Local AI scan did not find a usable tight target crop"
+                                    if scan_mode == "local"
+                                    else "Claude AI attempted but did not return a usable tight target crop"
+                                ),
+                                method="local_ai_failed" if scan_mode == "local" else "ai_failed",
                                 crop_box=None,
                                 output_path=None,
                             )
@@ -144,7 +153,7 @@ def prepare_dataset_crops(
                 cropped = image.crop(crop_box)
                 output_path = output_folder / f"{image_path.stem}_{request.target}_{index:04d}.jpg"
                 cropped.save(output_path, "JPEG", quality=95)
-                if method == "ai_guided":
+                if method in {"ai_guided", "local_ai"}:
                     ai_guided_count += 1
                 elif method == "face_guided":
                     face_guided_count += 1
@@ -245,6 +254,96 @@ def _default_output_folder(target: str) -> Path:
 
 def _detect_faces(image_path: Path) -> tuple[list[FaceBox], str | None]:
     return [], "Local face detector disabled for stable background prep; using center fallback crops."
+
+
+def _local_ai_crop_box(image_path: Path, size: tuple[int, int], target: str) -> tuple[CropBox | None, str | None]:
+    try:
+        detections = local_crop_detector().detect(image_path)
+    except LocalCropDetectorUnavailable as exc:
+        return None, f"Local AI crop scanner is unavailable; skipped matching crop. {exc}"
+    return _crop_box_from_local_detections(detections, size, target)
+
+
+def _crop_box_from_local_detections(
+    detections: list[LocalCropDetection],
+    size: tuple[int, int],
+    target: str,
+) -> tuple[CropBox | None, str | None]:
+    width, height = size
+    if width <= 0 or height <= 0:
+        return None, "Local AI crop scanner received an invalid image size."
+
+    face_box = _largest_normalized_box(
+        _detection_box_to_normalized(detection, width, height)
+        for detection in detections
+        if detection.label in {"FACE_FEMALE", "FACE_MALE"} and detection.score >= 0.22
+    )
+    if target == "chest_detail":
+        exposed_breasts = _valid_breast_boxes(detections, width, height, exposed_only=True)
+        breast_boxes = exposed_breasts or _valid_breast_boxes(detections, width, height, exposed_only=False)
+        if not breast_boxes:
+            return None, "Local AI scan did not detect a usable breast region in at least one image; that image was skipped."
+        crop_box = _breast_region_crop(breast_boxes, face_box)
+        if not _is_tight_chest_region(crop_box):
+            return None, "Local AI scan found breasts but the crop was too broad or portrait-like; that image was skipped."
+        return _normalized_box_to_pixels(crop_box, width, height), None
+
+    torso_boxes = [
+        box
+        for box in (_detection_box_to_normalized(detection, width, height) for detection in detections)
+        if box is not None
+    ]
+    if not torso_boxes:
+        return None, "Local AI scan did not find a usable body region in at least one image; that image was skipped."
+    crop_box = _avoid_face_overlap(_union_boxes(torso_boxes), face_box)
+    return _normalized_box_to_pixels(crop_box, width, height), None
+
+
+def _valid_breast_boxes(
+    detections: list[LocalCropDetection],
+    width: int,
+    height: int,
+    *,
+    exposed_only: bool,
+) -> list[NormalizedBox]:
+    boxes: list[NormalizedBox] = []
+    for detection in detections:
+        if detection.score < 0.24:
+            continue
+        if exposed_only and detection.label != "FEMALE_BREAST_EXPOSED":
+            continue
+        if not exposed_only and detection.label not in {"FEMALE_BREAST_EXPOSED", "FEMALE_BREAST_COVERED"}:
+            continue
+        box = _detection_box_to_normalized(detection, width, height)
+        if box is None:
+            continue
+        box_width = box[2] - box[0]
+        box_height = box[3] - box[1]
+        if box_width * box_height < 0.003:
+            continue
+        boxes.append(box)
+    return boxes
+
+
+def _detection_box_to_normalized(detection: LocalCropDetection, width: int, height: int) -> NormalizedBox | None:
+    x, y, box_width, box_height = detection.box
+    return _normalized_box([x / width, y / height, (x + box_width) / width, (y + box_height) / height])
+
+
+def _largest_normalized_box(boxes: Iterable[NormalizedBox | None]) -> NormalizedBox | None:
+    valid_boxes = [box for box in boxes if box is not None]
+    if not valid_boxes:
+        return None
+    return max(valid_boxes, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+
+
+def _union_boxes(boxes: list[NormalizedBox]) -> NormalizedBox:
+    return (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
 
 
 def _claude_crop_box(
@@ -632,6 +731,8 @@ def _clamp_box(box: CropBox, width: int, height: int) -> CropBox:
 
 def _reason_for(method: str, target: str) -> str:
     label = target.replace("_", " ")
+    if method == "local_ai":
+        return f"{label} crop from local AI scan"
     if method == "ai_guided":
         return f"{label} crop from Claude AI scan"
     if method == "face_guided":

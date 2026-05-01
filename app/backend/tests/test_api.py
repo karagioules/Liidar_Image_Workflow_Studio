@@ -325,6 +325,7 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
             "output_folder": str(output),
             "target": "chest_detail",
             "recursive": True,
+            "scan_mode": "off",
         },
     )
 
@@ -336,6 +337,77 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
     assert body["images"][0]["accepted"] is True
     assert body["images"][0]["output_path"].endswith(".jpg")
     assert Path(body["images"][0]["output_path"]).is_file()
+
+
+def test_dataset_prep_local_ai_route_writes_detector_crop_without_api_key(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    output = tmp_path / "prepared"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(dataset_prepper, "_local_ai_crop_box", lambda image_path, size, target: ((120, 260, 720, 820), None))
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/dataset-prep/crop",
+        json={
+            "source_folder": str(source),
+            "output_folder": str(output),
+            "target": "chest_detail",
+            "recursive": True,
+            "scan_mode": "local",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cropped_count"] == 1
+    assert body["ai_attempted_count"] == 1
+    assert body["ai_guided_count"] == 1
+    assert body["images"][0]["method"] == "local_ai"
+    assert body["images"][0]["crop_box"] == [120, 260, 720, 820]
+
+
+def test_dataset_prep_local_ai_failure_skips_instead_of_center_crop(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    output = tmp_path / "prepared"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(
+        dataset_prepper,
+        "_local_ai_crop_box",
+        lambda image_path, size, target: (None, "Local AI scan did not detect a usable breast region."),
+    )
+
+    report = dataset_prepper.prepare_dataset_crops(
+        DatasetPrepRequest(source_folder=source, output_folder=output, target="chest_detail", scan_mode="local"),
+    )
+
+    assert report.cropped_count == 0
+    assert report.skipped_count == 1
+    assert report.ai_attempted_count == 1
+    assert report.ai_failed_count == 1
+    assert report.fallback_count == 0
+    assert report.images[0].method == "local_ai_failed"
+
+
+def test_dataset_prep_local_detector_chest_crop_uses_breast_boxes() -> None:
+    crop, warning = dataset_prepper._crop_box_from_local_detections(
+        [
+            dataset_prepper.LocalCropDetection("FACE_FEMALE", 0.8, (300, 30, 220, 210), "test"),
+            dataset_prepper.LocalCropDetection("FEMALE_BREAST_EXPOSED", 0.86, (170, 335, 250, 300), "test"),
+            dataset_prepper.LocalCropDetection("FEMALE_BREAST_EXPOSED", 0.84, (455, 330, 255, 305), "test"),
+        ],
+        (900, 1300),
+        "chest_detail",
+    )
+
+    assert warning is None
+    assert crop is not None
+    left, top, right, bottom = crop
+    assert left <= 170
+    assert right >= 710
+    assert top >= 240
+    assert bottom >= 635
 
 
 def test_dataset_prep_ai_chest_crop_requires_breast_boxes() -> None:

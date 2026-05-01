@@ -6,6 +6,7 @@ export type FacePolicy = "reject_faces" | "redact_faces" | "body_part_crops_only
 export type SourceRights = "synthetic" | "owned" | "licensed" | "consented";
 export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | "unclear";
 export type DatasetPrepTarget = "chest_detail" | "upper_torso" | "full_body_context";
+export type DatasetPrepScanMode = "local" | "claude" | "off";
 export type DatasetPrepJobState = "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
 
 export interface CharacterProfile {
@@ -200,6 +201,7 @@ export interface DatasetPrepRequest {
   output_folder: string | null;
   target: DatasetPrepTarget;
   recursive: boolean;
+  scan_mode: DatasetPrepScanMode;
   use_ai: boolean;
   ai_max_images: number;
   ai_model: string;
@@ -245,6 +247,7 @@ export interface DatasetPrepJobStatus {
   fallback_count: number;
   active_file: string | null;
   output_folder: string | null;
+  scan_mode: DatasetPrepScanMode;
   use_ai: boolean;
   ai_max_images: number;
   cancel_requested: boolean;

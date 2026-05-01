@@ -10,6 +10,7 @@ import type {
   CharacterProfile,
   DatasetPrepJobStatus,
   DatasetPrepResponse,
+  DatasetPrepScanMode,
   DatasetPrepTarget,
   DatasetScanReport,
   DatasetType,
@@ -68,6 +69,7 @@ const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
 const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
 const prepTargets: DatasetPrepTarget[] = ["chest_detail", "upper_torso", "full_body_context"];
+const prepScanModes: DatasetPrepScanMode[] = ["local", "claude", "off"];
 const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
   { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
   { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
@@ -121,6 +123,15 @@ function prepTargetLabel(value: DatasetPrepTarget) {
     chest_detail: "Chest detail",
     upper_torso: "Upper torso",
     full_body_context: "Full-body context"
+  };
+  return labels[value];
+}
+
+function prepScanModeLabel(value: DatasetPrepScanMode) {
+  const labels: Record<DatasetPrepScanMode, string> = {
+    local: "Local AI scan (free)",
+    claude: "Claude fallback (paid)",
+    off: "Simple crop only"
   };
   return labels[value];
 }
@@ -180,7 +191,7 @@ function App() {
   const [prepOutputFolder, setPrepOutputFolder] = useState("");
   const [prepTarget, setPrepTarget] = useState<DatasetPrepTarget>("chest_detail");
   const [prepRecursive, setPrepRecursive] = useState(true);
-  const [prepUseAi, setPrepUseAi] = useState(false);
+  const [prepScanMode, setPrepScanMode] = useState<DatasetPrepScanMode>("local");
   const [prepAiMaxImages, setPrepAiMaxImages] = useState(100);
   const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
@@ -394,7 +405,8 @@ function App() {
         output_folder: prepOutputFolder.trim() ? prepOutputFolder : null,
         target: prepTarget,
         recursive: prepRecursive,
-        use_ai: prepUseAi,
+        scan_mode: prepScanMode,
+        use_ai: prepScanMode === "claude",
         ai_max_images: prepAiMaxImages,
         ai_model: anthropicModel
       });
@@ -611,7 +623,7 @@ function App() {
             outputFolder={prepOutputFolder}
             target={prepTarget}
             recursive={prepRecursive}
-            useAi={prepUseAi}
+            scanMode={prepScanMode}
             aiMaxImages={prepAiMaxImages}
             anthropicKeySaved={anthropicKeySaved}
             anthropicKeyInput={anthropicKeyInput}
@@ -624,7 +636,7 @@ function App() {
             onOutputFolderChange={setPrepOutputFolder}
             onTargetChange={setPrepTarget}
             onRecursiveChange={setPrepRecursive}
-            onUseAiChange={setPrepUseAi}
+            onScanModeChange={setPrepScanMode}
             onAiMaxImagesChange={setPrepAiMaxImages}
             onAnthropicKeyInputChange={setAnthropicKeyInput}
             onSaveAnthropicKey={() => void saveAnthropicKey()}
@@ -888,7 +900,7 @@ function DatasetPrepPanel(props: {
   outputFolder: string;
   target: DatasetPrepTarget;
   recursive: boolean;
-  useAi: boolean;
+  scanMode: DatasetPrepScanMode;
   aiMaxImages: number;
   anthropicKeySaved: boolean;
   anthropicKeyInput: string;
@@ -901,7 +913,7 @@ function DatasetPrepPanel(props: {
   onOutputFolderChange: (value: string) => void;
   onTargetChange: (value: DatasetPrepTarget) => void;
   onRecursiveChange: (value: boolean) => void;
-  onUseAiChange: (value: boolean) => void;
+  onScanModeChange: (value: DatasetPrepScanMode) => void;
   onAiMaxImagesChange: (value: number) => void;
   onAnthropicKeyInputChange: (value: string) => void;
   onSaveAnthropicKey: () => void;
@@ -912,17 +924,20 @@ function DatasetPrepPanel(props: {
   onRun: () => void;
   onCancel: () => void;
 }) {
-  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing;
+  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing && (props.scanMode !== "claude" || props.anthropicKeySaved);
   const previewImages = props.report?.images.filter((image) => image.accepted).slice(0, 12) ?? [];
   const progressTotal = props.job?.total_count ?? 0;
   const progressProcessed = props.job?.processed_count ?? 0;
   const progressPercent = progressTotal > 0 ? Math.round((progressProcessed / progressTotal) * 100) : props.isPreparing ? 4 : 0;
   const isCancelable = Boolean(props.job && ["queued", "running", "cancelling"].includes(props.job.status));
-  const aiModeText = props.useAi
-    ? props.anthropicKeySaved
-      ? `Claude AI enabled for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; estimated scan cost ${aiCostEstimate(props.aiMaxImages)}.`
-      : "Claude AI is selected but no saved key is available."
-    : "Claude AI is off. This run will use local cropping only.";
+  const aiModeText =
+    props.scanMode === "local"
+      ? "Local AI scan is active. It uses the local NudeNet detector and writes only crops with a usable detected target."
+      : props.scanMode === "claude"
+        ? props.anthropicKeySaved
+          ? `Claude fallback is active for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; estimated scan cost ${aiCostEstimate(props.aiMaxImages)}.`
+          : "Claude fallback is selected but no saved key is available."
+        : "Detection is off. This run will use simple local fallback crops.";
   return (
     <section className="training-layout dataset-prep-layout">
       <div className="panel training-overview">
@@ -975,58 +990,73 @@ function DatasetPrepPanel(props: {
         </div>
         <section className="api-key-panel">
           <div className="panel-heading">
-            <h3>Claude AI scan</h3>
-            <p>Optional. Uses Claude Haiku 4.5 with compressed image payloads for lower-cost vision checks.</p>
+            <h3>Detection mode</h3>
+            <p>Local AI is the default free path. Claude remains available only as a paid fallback.</p>
           </div>
           <div className="form-grid two-column">
             <label>
-              API key
-              <input
-                type="password"
-                value={props.anthropicKeyInput}
-                onChange={(event) => props.onAnthropicKeyInputChange(event.target.value)}
-                placeholder={props.anthropicKeySaved ? "Saved key active" : "Paste Anthropic API key"}
-              />
+              Scanner
+              <select value={props.scanMode} onChange={(event) => props.onScanModeChange(event.target.value as DatasetPrepScanMode)}>
+                {prepScanModes.map((mode) => <option key={mode} value={mode}>{prepScanModeLabel(mode)}</option>)}
+              </select>
             </label>
-            <label>
-              Max AI images
-              <input
-                type="number"
-                min="0"
-                max="500"
-                value={props.aiMaxImages}
-                onChange={(event) => props.onAiMaxImagesChange(Number(event.target.value))}
-              />
-            </label>
+            {props.scanMode === "claude" ? (
+              <label>
+                Max Claude images
+                <input
+                  type="number"
+                  min="0"
+                  max="500"
+                  value={props.aiMaxImages}
+                  onChange={(event) => props.onAiMaxImagesChange(Number(event.target.value))}
+                />
+              </label>
+            ) : null}
           </div>
-          <div className="actions compact-actions">
-            <button type="button" className="secondary-button" onClick={props.onSaveAnthropicKey} disabled={!props.anthropicKeyInput.trim()}>
-              <Save aria-hidden="true" />
-              Save key
-            </button>
-            <button type="button" className="secondary-button" onClick={props.onRemoveAnthropicKey} disabled={!props.anthropicKeySaved}>
-              <X aria-hidden="true" />
-              Remove key
-            </button>
-            <button type="button" className="secondary-button" onClick={props.onTestAnthropicKey} disabled={!props.anthropicKeySaved}>
-              <Search aria-hidden="true" />
-              Test key
-            </button>
-            <label className="check-row inline-check">
-              <input type="checkbox" checked={props.useAi} onChange={(event) => props.onUseAiChange(event.target.checked)} disabled={!props.anthropicKeySaved} />
-              Use AI scan
-            </label>
-          </div>
-          <div className={props.anthropicKeySaved ? "inline-status ok" : "inline-status warning"}>
-            {props.anthropicKeySaved ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-            <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
-          </div>
-          {props.anthropicKeyTest ? (
-            <div className={props.anthropicKeyTest.ok ? "inline-status ok" : "inline-status warning"}>
-              {props.anthropicKeyTest.ok ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-              <span>{props.anthropicKeyTest.message}</span>
+          {props.scanMode === "claude" ? (
+            <>
+              <div className="form-grid two-column">
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={props.anthropicKeyInput}
+                    onChange={(event) => props.onAnthropicKeyInputChange(event.target.value)}
+                    placeholder={props.anthropicKeySaved ? "Saved key active" : "Paste Anthropic API key"}
+                  />
+                </label>
+              </div>
+              <div className="actions compact-actions">
+                <button type="button" className="secondary-button" onClick={props.onSaveAnthropicKey} disabled={!props.anthropicKeyInput.trim()}>
+                  <Save aria-hidden="true" />
+                  Save key
+                </button>
+                <button type="button" className="secondary-button" onClick={props.onRemoveAnthropicKey} disabled={!props.anthropicKeySaved}>
+                  <X aria-hidden="true" />
+                  Remove key
+                </button>
+                <button type="button" className="secondary-button" onClick={props.onTestAnthropicKey} disabled={!props.anthropicKeySaved}>
+                  <Search aria-hidden="true" />
+                  Test key
+                </button>
+              </div>
+              <div className={props.anthropicKeySaved ? "inline-status ok" : "inline-status warning"}>
+                {props.anthropicKeySaved ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+                <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
+              </div>
+              {props.anthropicKeyTest ? (
+                <div className={props.anthropicKeyTest.ok ? "inline-status ok" : "inline-status warning"}>
+                  {props.anthropicKeyTest.ok ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+                  <span>{props.anthropicKeyTest.message}</span>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="inline-status ok">
+              <CheckCircle2 aria-hidden="true" />
+              <span>{props.scanMode === "local" ? "Local AI scanning is free and runs on this PC." : "Simple fallback mode is selected."}</span>
             </div>
-          ) : null}
+          )}
         </section>
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
@@ -1052,8 +1082,8 @@ function DatasetPrepPanel(props: {
             <div className="prep-progress-meta">
               <span>
                 {props.job.use_ai
-                  ? `AI scan on: ${props.job.ai_attempted_count} attempted, ${props.job.ai_guided_count} succeeded, ${props.job.ai_failed_count} failed`
-                  : "AI scan off: local cropping only"}
+                  ? `${prepScanModeLabel(props.job.scan_mode)}: ${props.job.ai_attempted_count} attempted, ${props.job.ai_guided_count} succeeded, ${props.job.ai_failed_count} skipped`
+                  : "AI scan off: simple local cropping only"}
               </span>
               <span>{props.job.fallback_count} fallback crop{props.job.fallback_count === 1 ? "" : "s"}</span>
               {props.job.active_file ? <span>Current: {props.job.active_file}</span> : null}
@@ -1085,7 +1115,7 @@ function DatasetPrepPanel(props: {
                 <article className="prep-preview-card" key={image.output_path ?? image.source_path}>
                   {image.output_path ? <img src={api.thumbnailUrl(image.output_path)} alt="" /> : null}
                   <div>
-                    <strong>{image.method === "ai_guided" ? "AI-guided crop" : image.method === "face_guided" ? "Face-guided crop" : "Fallback crop"}</strong>
+                    <strong>{image.method === "local_ai" ? "Local AI crop" : image.method === "ai_guided" ? "Claude crop" : image.method === "face_guided" ? "Face-guided crop" : "Fallback crop"}</strong>
                     <span>{image.reason}</span>
                   </div>
                 </article>
