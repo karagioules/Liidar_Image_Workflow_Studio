@@ -255,6 +255,48 @@ def _claude_crop_box(
     model: str,
 ) -> tuple[CropBox | None, str | None]:
     encoded = _encode_image_for_ai(image)
+    try:
+        response = _post_claude_crop_request(
+            encoded,
+            target,
+            anthropic_api_key=anthropic_api_key,
+            model=model,
+            structured=False,
+        )
+        if response.status_code >= 400:
+            return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
+        data = response.json()
+        try:
+            parsed = _parse_claude_crop_response(data)
+        except (ValueError, json.JSONDecodeError):
+            retry_response = _post_claude_crop_request(
+                encoded,
+                target,
+                anthropic_api_key=anthropic_api_key,
+                model=model,
+                structured=True,
+            )
+            if retry_response.status_code >= 400:
+                return None, f"Claude AI crop retry failed: {_anthropic_error_message(retry_response)}"
+            parsed = _parse_claude_crop_response(retry_response.json())
+        if not parsed.get("visible_target"):
+            return None, "Claude did not find a tight target crop in at least one image; that image was skipped."
+        crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
+        if crop_box is None:
+            return None, "Claude returned a broad or unusable crop for at least one image; that image was skipped."
+        return crop_box, None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
+
+
+def _post_claude_crop_request(
+    encoded_image: str,
+    target: str,
+    *,
+    anthropic_api_key: str,
+    model: str,
+    structured: bool,
+) -> httpx.Response:
     target_label = _target_instruction(target)
     prompt = (
         "Return compact JSON only. Coordinates are normalized [left,top,right,bottom]. "
@@ -265,49 +307,79 @@ def _claude_crop_box(
         f"Target: {target_label}. "
         'JSON: {"visible_target":true,"breast_boxes":[[0.2,0.3,0.45,0.62],[0.52,0.3,0.78,0.62]],"nipple_boxes":[[0.32,0.46,0.36,0.5],[0.64,0.46,0.68,0.5]],"face_box":null}'
     )
-    try:
-        response = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": anthropic_api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": 80,
-                "temperature": 0,
-                "messages": [
+    payload: dict[str, object] = {
+        "model": model,
+        "max_tokens": 140 if structured else 80,
+        "temperature": 0,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
                     {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": encoded,
-                                },
-                            },
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": encoded_image,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
                 ],
+            }
+        ],
+    }
+    if structured:
+        payload["tools"] = [_claude_crop_tool()]
+        payload["tool_choice"] = {"type": "tool", "name": "return_crop"}
+    return httpx.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json=payload,
+        timeout=45,
+    )
+
+
+def _claude_crop_tool() -> dict:
+    return {
+        "name": "return_crop",
+        "description": "Return tight chest crop coordinates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "visible_target": {"type": "boolean"},
+                "breast_boxes": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": {"type": "number"},
+                    },
+                },
+                "nipple_boxes": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": {"type": "number"},
+                    },
+                },
+                "face_box": {
+                    "type": ["array", "null"],
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "number"},
+                },
             },
-            timeout=45,
-        )
-        if response.status_code >= 400:
-            return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
-        data = response.json()
-        parsed = _parse_claude_crop_response(data)
-        if not parsed.get("visible_target"):
-            return None, "Claude did not find a tight target crop in at least one image; that image was skipped."
-        crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
-        if crop_box is None:
-            return None, "Claude returned a broad or unusable crop for at least one image; that image was skipped."
-        return crop_box, None
-    except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
+            "required": ["visible_target", "breast_boxes", "nipple_boxes", "face_box"],
+            "additionalProperties": False,
+        },
+    }
 
 
 def _anthropic_error_message(response: httpx.Response) -> str:
