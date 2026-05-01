@@ -139,6 +139,44 @@ def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path)
     assert comfy.queued_workflow["4"]["inputs"]["ckpt_name"] == "sdxl_base_1.0.safetensors"
 
 
+def test_completed_global_pack_is_added_to_future_generation(tmp_path: Path) -> None:
+    comfy = FakeComfyClient()
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    lora_path = tmp_path / "outputs" / "global_body_pack.safetensors"
+    lora_path.parent.mkdir()
+    lora_path.write_bytes(b"fake")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=comfy))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+    job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(lora_path.parent),
+                "base_model_path": "base.safetensors",
+                "lora_name": "global_body_pack",
+                "dataset_type": "body_shape",
+                "global_pack": True,
+            },
+            "accepted_image_count": 8,
+        },
+    ).json()
+    client.post(f"/api/training/{job['job_id']}/register-lora", json={"lora_path": str(lora_path)})
+
+    preview = client.post("/api/generate/preview", json={"character_id": "ari", "seed": 12})
+    generated = client.post("/api/generate", json={"character_id": "ari", "seed": 12})
+
+    assert preview.status_code == 200
+    assert preview.json()["lora_files"] == [str(lora_path)]
+    assert generated.status_code == 200
+    assert comfy.queued_workflow is not None
+    assert comfy.queued_workflow["21"]["class_type"] == "LoraLoader"
+    assert comfy.queued_workflow["21"]["inputs"]["lora_name"] == str(lora_path)
+    assert comfy.queued_workflow["3"]["inputs"]["model"] == ["21", 0]
+
+
 def test_generate_route_returns_503_for_comfy_runtime_error(tmp_path: Path) -> None:
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FailingComfyClient()))
     client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
@@ -207,6 +245,18 @@ def test_select_reference_images_uses_native_picker_result(tmp_path: Path, monke
     assert response.status_code == 200
     body = response.json()
     assert body["selected_paths"] == [str(reference)]
+
+
+def test_select_folder_uses_native_picker_result(tmp_path: Path, monkeypatch) -> None:
+    selected = tmp_path / "training-source"
+    selected.mkdir()
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    monkeypatch.setattr(main_module, "_select_folder_path", lambda: str(selected))
+
+    response = client.post("/api/filesystem/select-folder")
+
+    assert response.status_code == 200
+    assert response.json()["folder_path"] == str(selected)
 
 
 def test_analyze_references_returns_character_draft_from_local_images(tmp_path: Path) -> None:

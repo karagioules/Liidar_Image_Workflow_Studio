@@ -30,6 +30,8 @@ def build_training_config(
         output_dir=request.output_dir,
         base_model_path=request.base_model_path,
         lora_name=request.lora_name,
+        dataset_type=request.dataset_type,
+        global_pack=request.global_pack,
         resolution=request.resolution,
         repeats=request.repeats,
         batch_size=request.batch_size,

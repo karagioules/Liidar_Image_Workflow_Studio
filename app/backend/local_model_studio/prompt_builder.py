@@ -26,7 +26,11 @@ BASE_NEGATIVE = (
 )
 
 
-def build_prompt_recipe(profile: CharacterProfile, request: GenerationRequest) -> PromptRecipe:
+def build_prompt_recipe(
+    profile: CharacterProfile,
+    request: GenerationRequest,
+    global_lora_files: list[str] | None = None,
+) -> PromptRecipe:
     settings = QUALITY_SETTINGS[request.quality]
     seed = _resolve_seed(profile, request)
     positive_parts = [
@@ -52,6 +56,7 @@ def build_prompt_recipe(profile: CharacterProfile, request: GenerationRequest) -
         height=settings["height"],
         steps=settings["steps"],
         cfg=settings["cfg"],
+        lora_files=_unique_loras([*(global_lora_files or []), *profile.lora_files]),
     )
 
 
@@ -61,3 +66,14 @@ def _resolve_seed(profile: CharacterProfile, request: GenerationRequest) -> int:
     if profile.seed_strategy == "locked" and profile.locked_seed is not None:
         return profile.locked_seed
     return secrets.randbelow(2_147_483_647)
+
+
+def _unique_loras(lora_files: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for lora_file in lora_files:
+        cleaned = lora_file.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            unique.append(cleaned)
+    return unique

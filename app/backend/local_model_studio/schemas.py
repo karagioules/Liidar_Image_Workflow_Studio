@@ -146,6 +146,7 @@ class PromptRecipe(BaseModel):
     height: int
     steps: int
     cfg: float
+    lora_files: list[str] = Field(default_factory=list)
 
 
 class RuntimeStatus(BaseModel):
@@ -190,6 +191,10 @@ class PathBrowserResponse(BaseModel):
 
 class SelectedReferenceImagesResponse(BaseModel):
     selected_paths: list[str]
+
+
+class SelectedFolderResponse(BaseModel):
+    folder_path: str | None
 
 
 class GenerationJobResponse(BaseModel):

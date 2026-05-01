@@ -103,6 +103,12 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/filesystem/select-folder")) {
+          return jsonResponse({
+            folder_path: "H:\\photos\\training-pack"
+          });
+        }
+
         if (url.includes("/api/characters/analyze-references")) {
           return jsonResponse({
             ...character,
@@ -208,7 +214,8 @@ describe("App", () => {
             width: 1024,
             height: 1024,
             steps: 30,
-            cfg: 6.5
+            cfg: 6.5,
+            lora_files: []
           });
         }
 
@@ -235,6 +242,8 @@ describe("App", () => {
             output_dir: "outputs/lora",
             base_model_path: "base.safetensors",
             lora_name: "ari_style",
+            dataset_type: "body_shape",
+            global_pack: true,
             resolution: 1024,
             repeats: 10,
             batch_size: 1,
@@ -459,17 +468,20 @@ describe("App", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
-    expect(screen.getByLabelText("Source folder path")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Dataset type" })).toHaveTextContent("fictional_face_identity");
-    expect(screen.getByLabelText("Face policy")).toBeInTheDocument();
-    expect(screen.getByLabelText("Source rights")).toBeInTheDocument();
+    expect(screen.getByText("Global improvement training")).toBeInTheDocument();
+    expect(screen.getByLabelText("Training folder")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Improvement type" })).toHaveTextContent("Body proportions");
+    expect(screen.getByLabelText("Data rights")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /scan dataset/i }));
+    await user.click(screen.getByRole("button", { name: /select folder/i }));
+    expect(await screen.findByDisplayValue("H:\\photos\\training-pack")).toBeInTheDocument();
 
-    expect(await screen.findByText("12")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /scan data pack/i }));
+
+    expect((await screen.findAllByText("12")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("3").length).toBeGreaterThan(0);
     expect(screen.getByText("Skipped unreadable image.")).toBeInTheDocument();
   });
 
@@ -478,10 +490,14 @@ describe("App", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
-    await user.click(screen.getByRole("button", { name: /create training config/i }));
+    await user.click(screen.getByRole("button", { name: /select folder/i }));
+    await user.click(screen.getByRole("button", { name: /scan data pack/i }));
+    await user.click(await screen.findByRole("button", { name: /create global training job/i }));
 
+    expect(await screen.findByText(/Global pack job job-1/i)).toBeInTheDocument();
+
+    await user.click(screen.getByText("Advanced trainer details"));
     expect(await screen.findByDisplayValue("H:\\studio\\config\\training\\job-1.json")).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: /check status/i }));
 
     expect(await screen.findByText("Trainer entrypoint is missing: train_network.py")).toBeInTheDocument();

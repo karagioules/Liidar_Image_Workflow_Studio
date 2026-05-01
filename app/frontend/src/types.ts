@@ -143,6 +143,10 @@ export interface SelectedReferenceImagesResponse {
   selected_paths: string[];
 }
 
+export interface SelectedFolderResponse {
+  folder_path: string | null;
+}
+
 export interface GenerationRequest {
   character_id: string;
   mode: GenerationMode;
@@ -160,6 +164,7 @@ export interface PromptRecipe {
   height: number;
   steps: number;
   cfg: number;
+  lora_files: string[];
 }
 
 export interface GenerationJobResponse {
@@ -194,6 +199,8 @@ export interface TrainingConfigRequest {
   output_dir: string;
   base_model_path: string;
   lora_name: string;
+  dataset_type: DatasetType | null;
+  global_pack: boolean;
   resolution: number;
   repeats: number;
   batch_size: number;

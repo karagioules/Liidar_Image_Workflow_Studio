@@ -59,6 +59,8 @@ class TrainingConfigRequest(BaseModel):
     output_dir: str = Field(min_length=1)
     base_model_path: str
     lora_name: str = Field(min_length=1, max_length=120)
+    dataset_type: DatasetType | None = None
+    global_pack: bool = True
     resolution: int = Field(default=1024, gt=0)
     repeats: int = Field(default=10, gt=0)
     batch_size: int = Field(default=1, gt=0)
@@ -76,6 +78,8 @@ class TrainingJobConfig(BaseModel):
     config_path: str | None = None
     base_model_path: str
     lora_name: str
+    dataset_type: DatasetType | None = None
+    global_pack: bool = True
     resolution: int = 1024
     repeats: int = 10
     batch_size: int = 1

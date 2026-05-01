@@ -59,6 +59,30 @@ button:disabled {
   color: #7dd3fc;
 }
 
+.brand-logo {
+  overflow: visible;
+}
+
+.brand-logo path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.brand-logo-beam {
+  stroke-width: 2.8;
+}
+
+.brand-logo-scan {
+  opacity: 0.82;
+  stroke-width: 1.8;
+}
+
+.brand-logo circle {
+  fill: currentColor;
+}
+
 .brand strong,
 .brand span {
   display: block;
@@ -392,13 +416,18 @@ button svg {
   margin-top: 14px;
 }
 
-label {
+label,
+.field-block {
   display: grid;
   gap: 7px;
   min-width: 0;
   color: #334155;
   font-size: 0.9rem;
   font-weight: 650;
+}
+
+.field-block > label {
+  display: block;
 }
 
 input,
@@ -953,6 +982,98 @@ textarea {
   gap: 16px;
 }
 
+.training-overview {
+  display: grid;
+  gap: 14px;
+}
+
+.training-step-strip,
+.preset-grid,
+.training-job-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.training-step-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.training-step-strip div,
+.preset-card {
+  min-width: 0;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.training-step-strip div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  color: #607083;
+  font-weight: 700;
+}
+
+.training-step-strip strong {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e8edf2;
+  color: #1f2937;
+}
+
+.training-step-strip .active {
+  color: #0f7792;
+  border-color: #9fd3df;
+}
+
+.folder-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.preset-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.preset-card {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  color: #17202a;
+  text-align: left;
+}
+
+.preset-card span {
+  color: #607083;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.preset-card.active {
+  border-color: #0f7792;
+  background: #e7f8fb;
+}
+
+.training-job-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.advanced-training summary {
+  cursor: pointer;
+  color: #17202a;
+  font-weight: 800;
+}
+
+.advanced-panel-heading {
+  margin-top: 16px;
+}
+
 .count-grid {
   margin-top: 16px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -990,8 +1111,15 @@ textarea {
   .form-grid.two-column,
   .analysis-panel,
   .status-grid,
+  .training-step-strip,
+  .preset-grid,
+  .training-job-summary,
   .count-grid,
   .recipe-box dl {
+    grid-template-columns: 1fr;
+  }
+
+  .folder-picker-row {
     grid-template-columns: 1fr;
   }
 }
@@ -1077,6 +1205,8 @@ body {
 .panel,
 .notice,
 .metric,
+.training-step-strip div,
+.preset-card,
 .path-module,
 .selected-paths-bar,
 .selected-path,
@@ -1113,6 +1243,8 @@ body {
 
 .row-button:hover,
 .row-button.active,
+.preset-card.active,
+.preset-card:hover,
 .selected-paths-bar:hover {
   background: #143344;
   color: #b9efff;
@@ -1120,7 +1252,9 @@ body {
 }
 
 label,
+.field-block,
 .advanced-fields summary,
+.advanced-training summary,
 .paste-paths summary,
 .attribute-card p,
 .adult-signal-card dd,
@@ -1129,6 +1263,24 @@ label,
 .recipe-box p,
 .metric strong {
   color: #e8eef6;
+}
+
+.training-step-strip div {
+  color: #92a4b8;
+}
+
+.training-step-strip .active {
+  color: #64d5ee;
+  border-color: #247b91;
+}
+
+.training-step-strip strong {
+  background: #182433;
+  color: #e8eef6;
+}
+
+.preset-card span {
+  color: #92a4b8;
 }
 
 input,

@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -23,6 +23,7 @@ import type {
 } from "./types";
 
 type TabId = "runtime" | "characters" | "generate" | "training";
+type TrainingPreset = "fast" | "balanced" | "high_quality";
 
 const blankCharacter: CharacterProfile = {
   id: "new-character",
@@ -63,6 +64,23 @@ const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
 const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
 const sourceRights: SourceRights[] = ["synthetic", "owned", "licensed", "consented"];
+const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
+  { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
+  { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
+  { id: "high_quality", label: "High quality", description: "Slower, stronger adapter training." }
+];
+
+function LiidarLogo() {
+  return (
+    <svg className="brand-logo" viewBox="0 0 32 32" aria-hidden="true">
+      <path className="brand-logo-beam" d="M10 6v20M10 26h11" />
+      <path className="brand-logo-scan" d="M15 9h10M15 16h7M15 23h10" />
+      <circle cx="7" cy="10" r="1.8" />
+      <circle cx="24" cy="16" r="1.8" />
+      <circle cx="12" cy="22" r="1.8" />
+    </svg>
+  );
+}
 
 function referencePathsText(profile: CharacterProfile): string {
   return profile.reference_images.join("\n");
@@ -115,6 +133,32 @@ function labelize(value: string) {
   return value.replace(/_/g, " ");
 }
 
+function datasetTypeLabel(value: DatasetType) {
+  const labels: Record<DatasetType, string> = {
+    body_part: "Body detail knowledge",
+    body_shape: "Body proportions",
+    pose: "Pose library",
+    style: "Photo realism / style",
+    fictional_face_identity: "Character identity adapter"
+  };
+  return labels[value];
+}
+
+function trainingPresetSettings(preset: TrainingPreset) {
+  if (preset === "fast") {
+    return { max_train_steps: 600, learning_rate: 0.0001, network_dim: 16, network_alpha: 8, repeats: 6 };
+  }
+  if (preset === "high_quality") {
+    return { max_train_steps: 1800, learning_rate: 0.00008, network_dim: 64, network_alpha: 32, repeats: 12 };
+  }
+  return { max_train_steps: 1200, learning_rate: 0.0001, network_dim: 32, network_alpha: 16, repeats: 10 };
+}
+
+function packNameFromDataset(name: string, type: DatasetType) {
+  const base = name.trim() || `global-${type}`;
+  return base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "global_improvement_pack";
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("runtime");
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -131,17 +175,18 @@ function App() {
   const [scenePrompt, setScenePrompt] = useState("soft natural light, believable still photo");
   const [extraNegative, setExtraNegative] = useState("");
 
-  const [datasetName, setDatasetName] = useState("fictional-face-pack");
+  const [datasetName, setDatasetName] = useState("global-body-pack");
   const [sourceFolder, setSourceFolder] = useState("");
-  const [datasetType, setDatasetType] = useState<DatasetType>("fictional_face_identity");
+  const [datasetType, setDatasetType] = useState<DatasetType>("body_shape");
   const [facePolicy, setFacePolicy] = useState<FacePolicy>("reject_faces");
   const [rights, setRights] = useState<SourceRights>("synthetic");
   const [scanReport, setScanReport] = useState<DatasetScanReport | null>(null);
   const [datasetPath, setDatasetPath] = useState("");
   const [baseModelPath, setBaseModelPath] = useState("models/sdxl_base_1.0.safetensors");
-  const [loraName, setLoraName] = useState("local_identity_lora");
-  const [outputDir, setOutputDir] = useState("outputs/lora");
+  const [loraName, setLoraName] = useState("global_body_pack");
+  const [outputDir, setOutputDir] = useState("outputs/global_lora");
   const [acceptedImageCount, setAcceptedImageCount] = useState(1);
+  const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("balanced");
   const [trainingJob, setTrainingJob] = useState<TrainingJobConfig | null>(null);
   const [trainerEntrypoint, setTrainerEntrypoint] = useState("train_network.py");
   const [trainerConfigPath, setTrainerConfigPath] = useState("");
@@ -256,41 +301,57 @@ function App() {
         source_folder: sourceFolder,
         dataset_type: datasetType,
         face_policy: facePolicy,
-        character_id: datasetType === "fictional_face_identity" ? selectedCharacter?.id ?? null : null,
-        source_rights: datasetType === "fictional_face_identity" ? rights : null,
+        character_id: null,
+        source_rights: rights,
         tags: []
       });
       setScanReport(report);
       setDatasetPath(sourceFolder);
       setAcceptedImageCount(Math.max(1, report.accepted_count));
+      setLoraName(packNameFromDataset(datasetName, datasetType));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to scan dataset.");
+    }
+  }
+
+  async function selectTrainingFolder() {
+    try {
+      setError("");
+      const result = await api.selectFolder();
+      if (result.folder_path) {
+        setSourceFolder(result.folder_path);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to select training folder.");
     }
   }
 
   async function createTrainingConfig() {
     try {
       setError("");
+      const preset = trainingPresetSettings(trainingPreset);
       const job = await api.createTrainingConfig({
         request: {
           dataset_id: scanReport?.dataset_id || datasetName,
           dataset_path: datasetPath || sourceFolder,
           output_dir: outputDir,
           base_model_path: baseModelPath,
-          lora_name: loraName,
+          lora_name: loraName || packNameFromDataset(datasetName, datasetType),
+          dataset_type: datasetType,
+          global_pack: true,
           resolution: 1024,
-          repeats: 10,
+          repeats: preset.repeats,
           batch_size: 1,
-          max_train_steps: 1200,
-          learning_rate: 0.0001,
-          network_dim: 32,
-          network_alpha: 16
+          max_train_steps: preset.max_train_steps,
+          learning_rate: preset.learning_rate,
+          network_dim: preset.network_dim,
+          network_alpha: preset.network_alpha
         },
         accepted_image_count: acceptedImageCount
       });
       setTrainingJob(job);
       setTrainerConfigPath(job.config_path ?? "");
-      setMessage(`Training config created for ${job.lora_name}.`);
+      setMessage(`Global training job created for ${job.lora_name}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create training config.");
     }
@@ -309,10 +370,9 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <SlidersHorizontal aria-hidden="true" />
+          <LiidarLogo />
           <div>
-            <strong>Local Model Studio</strong>
-            <span>AMD-first still photo workspace</span>
+            <strong>Liidar</strong>
           </div>
         </div>
         <nav className="tab-list" aria-label="Studio sections">
@@ -385,13 +445,12 @@ function App() {
         ) : null}
         {activeTab === "training" ? (
           <TrainingPanel
-            characters={characters}
-            selectedCharacterId={selectedCharacter?.id ?? ""}
             datasetName={datasetName}
             sourceFolder={sourceFolder}
             datasetType={datasetType}
             facePolicy={facePolicy}
             rights={rights}
+            trainingPreset={trainingPreset}
             scanReport={scanReport}
             datasetPath={datasetPath}
             baseModelPath={baseModelPath}
@@ -402,12 +461,12 @@ function App() {
             trainerConfigPath={trainerConfigPath}
             trainerStatus={trainerStatus}
             trainingJob={trainingJob}
-            onCharacterChange={setSelectedCharacterId}
             onDatasetNameChange={setDatasetName}
             onSourceFolderChange={setSourceFolder}
             onDatasetTypeChange={setDatasetType}
             onFacePolicyChange={setFacePolicy}
             onRightsChange={setRights}
+            onTrainingPresetChange={setTrainingPreset}
             onDatasetPathChange={setDatasetPath}
             onBaseModelPathChange={setBaseModelPath}
             onLoraNameChange={setLoraName}
@@ -415,6 +474,7 @@ function App() {
             onAcceptedImageCountChange={setAcceptedImageCount}
             onTrainerEntrypointChange={setTrainerEntrypoint}
             onTrainerConfigPathChange={setTrainerConfigPath}
+            onSelectSourceFolder={selectTrainingFolder}
             onScan={scanDataset}
             onCreateConfig={createTrainingConfig}
             onCheckStatus={checkTrainerStatus}
@@ -678,13 +738,12 @@ function GeneratePanel(props: {
 }
 
 function TrainingPanel(props: {
-  characters: CharacterProfile[];
-  selectedCharacterId: string;
   datasetName: string;
   sourceFolder: string;
   datasetType: DatasetType;
   facePolicy: FacePolicy;
   rights: SourceRights;
+  trainingPreset: TrainingPreset;
   scanReport: DatasetScanReport | null;
   datasetPath: string;
   baseModelPath: string;
@@ -695,12 +754,12 @@ function TrainingPanel(props: {
   trainerConfigPath: string;
   trainerStatus: TrainerStatus | null;
   trainingJob: TrainingJobConfig | null;
-  onCharacterChange: (id: string) => void;
   onDatasetNameChange: (value: string) => void;
   onSourceFolderChange: (value: string) => void;
   onDatasetTypeChange: (value: DatasetType) => void;
   onFacePolicyChange: (value: FacePolicy) => void;
   onRightsChange: (value: SourceRights) => void;
+  onTrainingPresetChange: (value: TrainingPreset) => void;
   onDatasetPathChange: (value: string) => void;
   onBaseModelPathChange: (value: string) => void;
   onLoraNameChange: (value: string) => void;
@@ -708,61 +767,77 @@ function TrainingPanel(props: {
   onAcceptedImageCountChange: (value: number) => void;
   onTrainerEntrypointChange: (value: string) => void;
   onTrainerConfigPathChange: (value: string) => void;
+  onSelectSourceFolder: () => void;
   onScan: () => void;
   onCreateConfig: () => void;
   onCheckStatus: () => void;
 }) {
-  const identityPack = props.datasetType === "fictional_face_identity";
+  const hasAcceptedImages = Boolean(props.scanReport && props.scanReport.accepted_count > 0);
+  const globalPackName = props.loraName || packNameFromDataset(props.datasetName, props.datasetType);
 
   return (
-    <section className="training-layout">
+    <section className="training-layout global-training">
+      <div className="panel training-overview">
+        <div className="panel-heading">
+          <h2>Global improvement training</h2>
+          <p>Reusable training packs that can improve future generations across the studio.</p>
+        </div>
+        <div className="training-step-strip">
+          <div className="active"><strong>1</strong><span>Choose data</span></div>
+          <div className={props.scanReport ? "active" : ""}><strong>2</strong><span>Review scan</span></div>
+          <div className={props.trainingJob ? "active" : ""}><strong>3</strong><span>Create global job</span></div>
+        </div>
+      </div>
+
       <div className="panel">
         <div className="panel-heading">
-          <h2>Dataset scan</h2>
-          <p>Use a typed local path; the backend scans the folder.</p>
+          <h2>1. Data pack</h2>
+          <p>Pick the folder and the kind of global knowledge this pack should add.</p>
         </div>
         <div className="form-grid two-column">
           <label>
-            Dataset name
+            Pack name
             <input value={props.datasetName} onChange={(event) => props.onDatasetNameChange(event.target.value)} />
           </label>
+          <div className="field-block">
+            <label htmlFor="training-folder">Training folder</label>
+            <div className="folder-picker-row">
+              <input
+                id="training-folder"
+                value={props.sourceFolder}
+                onChange={(event) => props.onSourceFolderChange(event.target.value)}
+                placeholder="Select a local folder"
+              />
+              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSourceFolder}>
+                <FolderOpen aria-hidden="true" />
+                Select folder
+              </button>
+            </div>
+          </div>
           <label>
-            Source folder path
-            <input value={props.sourceFolder} onChange={(event) => props.onSourceFolderChange(event.target.value)} placeholder="H:\photos\training-pack" />
-          </label>
-          <label>
-            Dataset type
+            Improvement type
             <select value={props.datasetType} onChange={(event) => props.onDatasetTypeChange(event.target.value as DatasetType)}>
-              {datasetTypes.map((item) => <option key={item} value={item}>{item}</option>)}
+              {datasetTypes.map((item) => <option key={item} value={item}>{datasetTypeLabel(item)}</option>)}
             </select>
           </label>
           <label>
-            Face policy
-            <select value={props.facePolicy} onChange={(event) => props.onFacePolicyChange(event.target.value as FacePolicy)}>
-              {facePolicies.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
+            Data rights
+            <select value={props.rights} onChange={(event) => props.onRightsChange(event.target.value as SourceRights)}>
+              {sourceRights.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
             </select>
           </label>
-          {identityPack ? (
-            <>
-              <label>
-                Character
-                <select value={props.selectedCharacterId} onChange={(event) => props.onCharacterChange(event.target.value)}>
-                  {props.characters.map((character) => <option key={character.id} value={character.id}>{character.display_name}</option>)}
-                </select>
-              </label>
-              <label>
-                Source rights
-                <select value={props.rights} onChange={(event) => props.onRightsChange(event.target.value as SourceRights)}>
-                  {sourceRights.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-                </select>
-              </label>
-            </>
-          ) : null}
         </div>
         <button type="button" className="primary-button" onClick={props.onScan}>
           <Search aria-hidden="true" />
-          Scan dataset
+          Scan data pack
         </button>
+      </div>
+
+      <div className="panel">
+        <div className="panel-heading">
+          <h2>2. Scan review</h2>
+          <p>Only accepted images are used for the global pack.</p>
+        </div>
         <div className="count-grid">
           <Metric label="Accepted" value={props.scanReport?.accepted_count ?? 0} />
           <Metric label="Rejected" value={props.scanReport?.rejected_count ?? 0} />
@@ -774,8 +849,41 @@ function TrainingPanel(props: {
 
       <div className="panel">
         <div className="panel-heading">
-          <h2>Training config</h2>
-          <p>Prepare a LoRA job for the accepted local images.</p>
+          <h2>3. Global training job</h2>
+          <p>Creates a reusable adapter pack for current and future generations.</p>
+        </div>
+        <div className="preset-grid" role="radiogroup" aria-label="Training preset">
+          {trainingPresets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              role="radio"
+              aria-checked={props.trainingPreset === preset.id}
+              className={props.trainingPreset === preset.id ? "preset-card active" : "preset-card"}
+              onClick={() => props.onTrainingPresetChange(preset.id)}
+            >
+              <strong>{preset.label}</strong>
+              <span>{preset.description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="training-job-summary">
+          <Metric label="Pack" value={globalPackName} />
+          <Metric label="Images ready" value={props.scanReport?.accepted_count ?? 0} />
+          <Metric label="Preset" value={trainingPresets.find((preset) => preset.id === props.trainingPreset)?.label ?? "Balanced"} />
+        </div>
+        <button type="button" className="primary-button" onClick={props.onCreateConfig} disabled={!hasAcceptedImages}>
+          <Save aria-hidden="true" />
+          Create global training job
+        </button>
+        {props.trainingJob ? <div className="inline-status"><CheckCircle2 aria-hidden="true" /><span>Global pack job {props.trainingJob.job_id}</span></div> : null}
+      </div>
+
+      <details className="panel advanced-training">
+        <summary>Advanced trainer details</summary>
+        <div className="panel-heading advanced-panel-heading">
+          <h2>Trainer configuration</h2>
+          <p>Technical paths and safety policy. Defaults are used unless changed here.</p>
         </div>
         <div className="form-grid two-column">
           <label>
@@ -803,20 +911,12 @@ function TrainingPanel(props: {
               onChange={(event) => props.onAcceptedImageCountChange(Number(event.target.value))}
             />
           </label>
-        </div>
-        <button type="button" className="secondary-button" onClick={props.onCreateConfig}>
-          <Save aria-hidden="true" />
-          Create training config
-        </button>
-        {props.trainingJob ? <div className="inline-status"><CheckCircle2 aria-hidden="true" /><span>Job {props.trainingJob.job_id}</span></div> : null}
-      </div>
-
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>Trainer status</h2>
-          <p>Check the trainer entrypoint and config path before launching.</p>
-        </div>
-        <div className="form-grid two-column">
+          <label>
+            Face policy
+            <select value={props.facePolicy} onChange={(event) => props.onFacePolicyChange(event.target.value as FacePolicy)}>
+              {facePolicies.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
+            </select>
+          </label>
           <label>
             Trainer entrypoint
             <input value={props.trainerEntrypoint} onChange={(event) => props.onTrainerEntrypointChange(event.target.value)} />
@@ -839,7 +939,7 @@ function TrainingPanel(props: {
             {props.trainerStatus.warnings.length ? <WarningList warnings={props.trainerStatus.warnings} /> : null}
           </>
         ) : null}
-      </div>
+      </details>
     </section>
   );
 }

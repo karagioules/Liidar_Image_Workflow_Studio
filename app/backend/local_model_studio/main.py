@@ -27,6 +27,7 @@ from local_model_studio.schemas import (
     ReferenceAnalysisRequest,
     ReferenceAnalysisResponse,
     RuntimeStatus,
+    SelectedFolderResponse,
     SelectedReferenceImagesResponse,
     SystemLiveMetrics,
 )
@@ -110,6 +111,13 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.post("/api/filesystem/select-folder", response_model=SelectedFolderResponse)
+    def select_local_folder() -> SelectedFolderResponse:
+        try:
+            return SelectedFolderResponse(folder_path=_select_folder_path())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/characters", response_model=list[CharacterProfile])
     def list_characters() -> list[CharacterProfile]:
         return profiles.list()
@@ -159,12 +167,12 @@ def create_app(
     @app.post("/api/generate/preview", response_model=PromptRecipe)
     def preview_generation(request: GenerationRequest) -> PromptRecipe:
         profile = _get_profile_or_404(profiles, request.character_id)
-        return build_prompt_recipe(profile, request)
+        return build_prompt_recipe(profile, request, _active_global_lora_files(training))
 
     @app.post("/api/generate", response_model=GenerationJobResponse)
     def generate(request: GenerationRequest) -> GenerationJobResponse:
         profile = _get_profile_or_404(profiles, request.character_id)
-        recipe = build_prompt_recipe(profile, request)
+        recipe = build_prompt_recipe(profile, request, _active_global_lora_files(training))
         workflow = render_sdxl_workflow(recipe, CHECKPOINT_NAME)
         try:
             prompt_id = comfy.queue_prompt(workflow)
@@ -225,6 +233,14 @@ def _get_profile_or_404(store: ProfileStore, profile_id: str) -> CharacterProfil
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _active_global_lora_files(training: TrainingStore) -> list[str]:
+    return [
+        job.completed_lora_path
+        for job in training.list()
+        if job.global_pack and job.completed_lora_path
+    ]
+
+
 def _select_reference_paths(mode: str) -> list[str]:
     try:
         from tkinter import Tk, filedialog
@@ -255,6 +271,28 @@ def _select_reference_paths(mode: str) -> list[str]:
         return _supported_image_paths(path for path in Path(folder).rglob("*") if path.is_file())
     except Exception as exc:
         raise RuntimeError(f"Unable to open Windows file picker: {exc}") from exc
+    finally:
+        root.destroy()
+
+
+def _select_folder_path() -> str | None:
+    try:
+        from tkinter import Tk, filedialog
+    except Exception as exc:
+        raise RuntimeError("Windows folder picker is not available in this Python environment.") from exc
+
+    try:
+        root = Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+    except Exception as exc:
+        raise RuntimeError(f"Unable to open Windows folder picker: {exc}") from exc
+
+    try:
+        folder = filedialog.askdirectory(title="Select training data folder")
+        return folder or None
+    except Exception as exc:
+        raise RuntimeError(f"Unable to open Windows folder picker: {exc}") from exc
     finally:
         root.destroy()
 

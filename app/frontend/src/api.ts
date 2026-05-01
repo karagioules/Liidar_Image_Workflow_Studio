@@ -8,6 +8,7 @@ import type {
   PromptRecipe,
   ReferenceAnalysisResponse,
   RuntimeStatus,
+  SelectedFolderResponse,
   SelectedReferenceImagesResponse,
   SystemLiveMetrics,
   TrainerStatus,
@@ -59,6 +60,10 @@ export const api = {
   },
   selectReferenceImages: (mode: "files" | "folder") =>
     request<SelectedReferenceImagesResponse>(`/api/filesystem/select-references?${new URLSearchParams({ mode }).toString()}`, {
+      method: "POST"
+    }),
+  selectFolder: () =>
+    request<SelectedFolderResponse>("/api/filesystem/select-folder", {
       method: "POST"
     }),
   characters: () => request<CharacterProfile[]>("/api/characters"),

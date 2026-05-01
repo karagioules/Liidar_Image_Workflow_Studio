@@ -9,7 +9,7 @@ Workflow = dict[str, dict[str, Any]]
 
 
 def render_sdxl_workflow(recipe: PromptRecipe, checkpoint_name: str) -> Workflow:
-    return {
+    workflow: Workflow = {
         "3": {
             "class_type": "KSampler",
             "inputs": {
@@ -68,3 +68,25 @@ def render_sdxl_workflow(recipe: PromptRecipe, checkpoint_name: str) -> Workflow
             },
         },
     }
+
+    model_source: list[Any] = ["4", 0]
+    clip_source: list[Any] = ["4", 1]
+    for index, lora_file in enumerate(recipe.lora_files, start=1):
+        node_id = str(20 + index)
+        workflow[node_id] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": model_source,
+                "clip": clip_source,
+                "lora_name": lora_file,
+                "strength_model": 0.75,
+                "strength_clip": 0.75,
+            },
+        }
+        model_source = [node_id, 0]
+        clip_source = [node_id, 1]
+
+    workflow["3"]["inputs"]["model"] = model_source
+    workflow["5"]["inputs"]["clip"] = clip_source
+    workflow["6"]["inputs"]["clip"] = clip_source
+    return workflow
