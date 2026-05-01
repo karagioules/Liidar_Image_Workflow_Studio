@@ -1191,6 +1191,34 @@ textarea {
   margin-top: 14px;
 }
 
+.learning-result {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.job-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.job-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.45fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #0d1520;
+}
+
+.job-row span {
+  color: #92a4b8;
+  overflow-wrap: anywhere;
+}
+
 .advanced-training summary {
   cursor: pointer;
   color: #17202a;
@@ -1241,6 +1269,7 @@ textarea {
   .training-step-strip,
   .preset-grid,
   .training-job-summary,
+  .job-row,
   .count-grid,
   .recipe-box dl {
     grid-template-columns: 1fr;

@@ -16,6 +16,7 @@ import type {
   DatasetType,
   FacePolicy,
   GenerationMode,
+  GlobalLearningResponse,
   PromptRecipe,
   QualityPreset,
   ReferenceAnalysisResponse,
@@ -184,6 +185,9 @@ function App() {
   const [acceptedImageCount, setAcceptedImageCount] = useState(1);
   const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("balanced");
   const [trainingJob, setTrainingJob] = useState<TrainingJobConfig | null>(null);
+  const [trainingJobs, setTrainingJobs] = useState<TrainingJobConfig[]>([]);
+  const [learningJob, setLearningJob] = useState<GlobalLearningResponse | null>(null);
+  const [isLearning, setIsLearning] = useState(false);
   const [trainerEntrypoint, setTrainerEntrypoint] = useState("train_network.py");
   const [trainerConfigPath, setTrainerConfigPath] = useState("");
   const [trainerStatus, setTrainerStatus] = useState<TrainerStatus | null>(null);
@@ -285,11 +289,12 @@ function App() {
   async function loadInitialData() {
     try {
       setError("");
-      const [runtimeStatus, profiles, keyStatus] = await Promise.all([api.runtime(), api.characters(), api.anthropicKeyStatus()]);
+      const [runtimeStatus, profiles, keyStatus, jobs] = await Promise.all([api.runtime(), api.characters(), api.anthropicKeyStatus(), api.trainingJobs()]);
       setRuntime(runtimeStatus);
       setCharacters(profiles);
       setAnthropicKeySaved(keyStatus.saved);
       setAnthropicModel(keyStatus.model);
+      setTrainingJobs(jobs);
       if (profiles[0]) {
         setSelectedCharacterId(profiles[0].id);
         setEditingCharacter(profiles[0]);
@@ -489,10 +494,42 @@ function App() {
         accepted_image_count: acceptedImageCount
       });
       setTrainingJob(job);
+      setTrainingJobs((current) => [...current.filter((item) => item.job_id !== job.job_id), job]);
       setTrainerConfigPath(job.config_path ?? "");
       setMessage(`Global training job created for ${job.lora_name}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create training config.");
+    }
+  }
+
+  async function createGlobalLearningJob() {
+    try {
+      setError("");
+      setMessage("");
+      setIsLearning(true);
+      const result = await api.createGlobalLearningJob({
+        pack_name: datasetName,
+        source_folder: sourceFolder,
+        dataset_type: datasetType,
+        target: "chest_detail",
+        recursive: true,
+        scan_mode: "local",
+        preset: trainingPreset,
+        base_model_path: baseModelPath,
+        output_dir: outputDir
+      });
+      setLearningJob(result);
+      setTrainingJob(result.training_job);
+      setTrainerConfigPath(result.training_job.config_path ?? "");
+      setDatasetPath(result.prep.output_folder);
+      setAcceptedImageCount(result.prep.cropped_count);
+      setLoraName(result.training_job.lora_name);
+      setTrainingJobs((current) => [...current.filter((item) => item.job_id !== result.training_job.job_id), result.training_job]);
+      setMessage(`Global learning job ${result.training_job.lora_name} created with ${result.prep.cropped_count} clean crop${result.prep.cropped_count === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create global learning job.");
+    } finally {
+      setIsLearning(false);
     }
   }
 
@@ -599,6 +636,9 @@ function App() {
             trainerConfigPath={trainerConfigPath}
             trainerStatus={trainerStatus}
             trainingJob={trainingJob}
+            trainingJobs={trainingJobs}
+            learningJob={learningJob}
+            isLearning={isLearning}
             onDatasetNameChange={setDatasetName}
             onSourceFolderChange={setSourceFolder}
             onDatasetTypeChange={setDatasetType}
@@ -612,6 +652,7 @@ function App() {
             onTrainerEntrypointChange={setTrainerEntrypoint}
             onTrainerConfigPathChange={setTrainerConfigPath}
             onSelectSourceFolder={selectTrainingFolder}
+            onCreateGlobalLearningJob={() => void createGlobalLearningJob()}
             onScan={scanDataset}
             onCreateConfig={createTrainingConfig}
             onCheckStatus={checkTrainerStatus}
@@ -1144,6 +1185,9 @@ function TrainingPanel(props: {
   trainerConfigPath: string;
   trainerStatus: TrainerStatus | null;
   trainingJob: TrainingJobConfig | null;
+  trainingJobs: TrainingJobConfig[];
+  learningJob: GlobalLearningResponse | null;
+  isLearning: boolean;
   onDatasetNameChange: (value: string) => void;
   onSourceFolderChange: (value: string) => void;
   onDatasetTypeChange: (value: DatasetType) => void;
@@ -1157,12 +1201,16 @@ function TrainingPanel(props: {
   onTrainerEntrypointChange: (value: string) => void;
   onTrainerConfigPathChange: (value: string) => void;
   onSelectSourceFolder: () => void;
+  onCreateGlobalLearningJob: () => void;
   onScan: () => void;
   onCreateConfig: () => void;
   onCheckStatus: () => void;
 }) {
   const hasAcceptedImages = Boolean(props.scanReport && props.scanReport.accepted_count > 0);
   const globalPackName = props.loraName || packNameFromDataset(props.datasetName, props.datasetType);
+  const completedGlobalPacks = props.trainingJobs.filter((job) => job.global_pack && job.completed_lora_path);
+  const pendingGlobalJobs = props.trainingJobs.filter((job) => job.global_pack && !job.completed_lora_path);
+  const latestCompletedPack = completedGlobalPacks.length ? completedGlobalPacks[completedGlobalPacks.length - 1] : null;
 
   return (
     <section className="training-layout global-training">
@@ -1176,6 +1224,62 @@ function TrainingPanel(props: {
           <div className={props.scanReport ? "active" : ""}><strong>2</strong><span>Review scan</span></div>
           <div className={props.trainingJob ? "active" : ""}><strong>3</strong><span>Create global job</span></div>
         </div>
+      </div>
+
+      <div className="panel learning-pipeline-panel">
+        <div className="panel-heading">
+          <h2>One-click global learning</h2>
+          <p>Local AI crops the source folder and creates the next versioned global training job.</p>
+        </div>
+        <div className="training-job-summary">
+          <Metric label="Source" value={props.sourceFolder || "Select a folder"} />
+          <Metric label="Next pack" value={`${packNameFromDataset(props.datasetName, props.datasetType)}_v_next`} />
+          <Metric label="Mode" value="Local AI scan" />
+        </div>
+        <div className="actions compact-actions">
+          <button type="button" className="primary-button" onClick={props.onCreateGlobalLearningJob} disabled={!props.sourceFolder.trim() || props.isLearning}>
+            <Activity aria-hidden="true" />
+            {props.isLearning ? "Building learning job" : "Build global learning job"}
+          </button>
+        </div>
+        {props.learningJob ? (
+          <div className="learning-result">
+            <div className="inline-status ok">
+              <CheckCircle2 aria-hidden="true" />
+              <span>{props.learningJob.training_job.lora_name} is ready for trainer launch.</span>
+            </div>
+            <div className="count-grid">
+              <Metric label="Clean crops" value={props.learningJob.prep.cropped_count} />
+              <Metric label="Skipped" value={props.learningJob.prep.skipped_count} />
+              <Metric label="Version" value={`v${props.learningJob.version}`} />
+              <Metric label="Crop folder" value={props.learningJob.prep.output_folder} />
+              <Metric label="Config" value={props.learningJob.training_job.config_path ?? "Saved"} />
+            </div>
+            {props.learningJob.warnings.length ? <WarningList warnings={props.learningJob.warnings} /> : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="panel">
+        <div className="panel-heading">
+          <h2>Global pack status</h2>
+          <p>Completed packs are automatically added to future generation recipes.</p>
+        </div>
+        <div className="count-grid">
+          <Metric label="Ready packs" value={completedGlobalPacks.length} />
+          <Metric label="Pending jobs" value={pendingGlobalJobs.length} />
+          <Metric label="Latest ready" value={latestCompletedPack?.lora_name ?? "None yet"} />
+        </div>
+        {pendingGlobalJobs.length ? (
+          <div className="job-list">
+            {pendingGlobalJobs.slice(-5).map((job) => (
+              <article key={job.job_id} className="job-row">
+                <strong>{job.lora_name}</strong>
+                <span>{job.accepted_image_count} images · {job.config_path ?? "config saved"}</span>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="panel">

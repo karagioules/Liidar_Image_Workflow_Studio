@@ -14,6 +14,7 @@ from local_model_studio.dataset_scanner import scan_dataset
 from local_model_studio.dataset_prep_jobs import DatasetPrepJobManager
 from local_model_studio.dataset_prepper import _anthropic_error_message, prepare_dataset_crops
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
+from local_model_studio.global_learning import create_global_learning_job
 from local_model_studio.local_image_tagger import local_tagger_from_workspace
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
@@ -44,6 +45,8 @@ from local_model_studio.training_config import build_training_config, check_trai
 from local_model_studio.training_schemas import (
     DatasetScanReport,
     DatasetScanRequest,
+    GlobalLearningRequest,
+    GlobalLearningResponse,
     TrainerStatus,
     TrainingConfigRequest,
     TrainingJobConfig,
@@ -245,6 +248,17 @@ def create_app(
     def scan_training_dataset(request: DatasetScanRequest) -> DatasetScanReport:
         try:
             return scan_dataset(request, output_root=workspace_paths.root / "datasets")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/training/jobs", response_model=list[TrainingJobConfig])
+    def list_training_jobs() -> list[TrainingJobConfig]:
+        return training.list()
+
+    @app.post("/api/learning/global-job", response_model=GlobalLearningResponse)
+    def create_learning_job(request: GlobalLearningRequest) -> GlobalLearningResponse:
+        try:
+            return create_global_learning_job(request, training)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

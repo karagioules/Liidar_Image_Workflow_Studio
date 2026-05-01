@@ -1099,6 +1099,66 @@ def test_training_config_route_persists_job_for_accepted_directory(tmp_path: Pat
     assert expected_config_path.is_file()
 
 
+def test_global_learning_job_creates_crops_and_versioned_global_config(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(dataset_prepper, "_local_ai_crop_box", lambda image_path, size, target: ((100, 250, 720, 840), None))
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    first = client.post(
+        "/api/learning/global-job",
+        json={
+            "pack_name": "global body pack",
+            "source_folder": str(source),
+            "dataset_type": "body_shape",
+            "target": "chest_detail",
+            "scan_mode": "local",
+            "preset": "balanced",
+            "base_model_path": "models/sdxl_base_1.0.safetensors",
+            "output_dir": str(tmp_path / "outputs"),
+        },
+    )
+    second = client.post(
+        "/api/learning/global-job",
+        json={
+            "pack_name": "global body pack",
+            "source_folder": str(source),
+            "dataset_type": "body_shape",
+            "target": "chest_detail",
+            "scan_mode": "local",
+            "preset": "fast",
+            "base_model_path": "models/sdxl_base_1.0.safetensors",
+            "output_dir": str(tmp_path / "outputs"),
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["prep"]["cropped_count"] == 1
+    assert first.json()["training_job"]["lora_name"] == "global_body_pack_v001"
+    assert second.json()["training_job"]["lora_name"] == "global_body_pack_v002"
+    jobs = client.get("/api/training/jobs")
+    assert jobs.status_code == 200
+    assert [job["lora_name"] for job in jobs.json()] == ["global_body_pack_v001", "global_body_pack_v002"]
+
+
+def test_global_learning_job_requires_usable_crops(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(dataset_prepper, "_local_ai_crop_box", lambda image_path, size, target: (None, "No usable region."))
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/learning/global-job",
+        json={"pack_name": "global body pack", "source_folder": str(source), "scan_mode": "local"},
+    )
+
+    assert response.status_code == 400
+    assert "did not create any usable crops" in response.json()["detail"]
+
+
 def test_register_lora_route_rejects_missing_file_and_accepts_safetensors(
     tmp_path: Path,
 ) -> None:

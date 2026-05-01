@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from local_model_studio.schemas import DatasetPrepResponse, DatasetPrepScanMode, DatasetPrepTarget
+
 
 DatasetType = Literal["body_part", "body_shape", "pose", "style", "fictional_face_identity"]
 FacePolicy = Literal["reject_faces", "redact_faces", "body_part_crops_only"]
@@ -98,4 +100,23 @@ class TrainerStatus(BaseModel):
     config_path: str
     trainer_entrypoint_exists: bool
     config_path_exists: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class GlobalLearningRequest(BaseModel):
+    pack_name: str = Field(default="global-body-pack", min_length=1, max_length=120)
+    source_folder: Path
+    dataset_type: DatasetType = "body_shape"
+    target: DatasetPrepTarget = "chest_detail"
+    recursive: bool = True
+    scan_mode: DatasetPrepScanMode = "local"
+    preset: Literal["fast", "balanced", "high_quality"] = "balanced"
+    base_model_path: str = Field(default="models/sdxl_base_1.0.safetensors", min_length=1)
+    output_dir: str = Field(default="outputs/global_lora", min_length=1)
+
+
+class GlobalLearningResponse(BaseModel):
+    prep: DatasetPrepResponse
+    training_job: TrainingJobConfig
+    version: int = Field(gt=0)
     warnings: list[str] = Field(default_factory=list)

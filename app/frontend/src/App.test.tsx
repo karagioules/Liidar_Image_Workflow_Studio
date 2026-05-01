@@ -268,6 +268,50 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/training/jobs")) {
+          return jsonResponse([]);
+        }
+
+        if (url.endsWith("/api/learning/global-job") && method === "POST") {
+          return jsonResponse({
+            prep: {
+              output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\learn-1",
+              processed_count: 10,
+              cropped_count: 8,
+              skipped_count: 2,
+              ai_attempted_count: 10,
+              ai_guided_count: 8,
+              ai_failed_count: 2,
+              face_guided_count: 0,
+              fallback_count: 0,
+              warnings: [],
+              images: []
+            },
+            training_job: {
+              job_id: "learn-job-1",
+              dataset_id: "global-body-pack-20260502010101",
+              dataset_path: "H:\\Desktop\\Liidar_Dataset_Crops\\learn-1",
+              output_dir: "outputs/global_lora",
+              base_model_path: "models/sdxl_base_1.0.safetensors",
+              lora_name: "global_body_pack_v001",
+              dataset_type: "body_shape",
+              global_pack: true,
+              resolution: 1024,
+              repeats: 10,
+              batch_size: 1,
+              max_train_steps: 1200,
+              learning_rate: 0.0001,
+              network_dim: 32,
+              network_alpha: 16,
+              accepted_image_count: 8,
+              completed_lora_path: null,
+              config_path: "H:\\studio\\config\\training\\learn-job-1.json"
+            },
+            version: 1,
+            warnings: ["Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it."]
+          });
+        }
+
         if (url.endsWith("/api/dataset-prep/jobs") && method === "POST") {
           return jsonResponse({
             job_id: "prep-job-1",
@@ -632,5 +676,18 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /check status/i }));
 
     expect(await screen.findByText("Trainer entrypoint is missing: train_network.py")).toBeInTheDocument();
+  });
+
+  it("creates one-click global learning jobs from a raw folder", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Training" }));
+    await user.click(screen.getByRole("button", { name: /select folder/i }));
+    await user.click(screen.getByRole("button", { name: /build global learning job/i }));
+
+    expect(await screen.findByText(/global_body_pack_v001 is ready for trainer launch/i)).toBeInTheDocument();
+    expect(screen.getByText("H:\\Desktop\\Liidar_Dataset_Crops\\learn-1")).toBeInTheDocument();
+    expect(screen.getByText("Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it.")).toBeInTheDocument();
   });
 });

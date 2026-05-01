@@ -257,6 +257,25 @@ export interface DatasetPrepJobStatus {
   updated_at?: string;
 }
 
+export interface GlobalLearningRequest {
+  pack_name: string;
+  source_folder: string;
+  dataset_type: DatasetType;
+  target: DatasetPrepTarget;
+  recursive: boolean;
+  scan_mode: DatasetPrepScanMode;
+  preset: "fast" | "balanced" | "high_quality";
+  base_model_path: string;
+  output_dir: string;
+}
+
+export interface GlobalLearningResponse {
+  prep: DatasetPrepResponse;
+  training_job: TrainingJobConfig;
+  version: number;
+  warnings: string[];
+}
+
 export interface TrainingConfigRequest {
   dataset_id: string;
   dataset_path: string;

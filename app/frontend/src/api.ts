@@ -9,6 +9,8 @@ import type {
   DatasetScanRequest,
   GenerationJobResponse,
   GenerationRequest,
+  GlobalLearningRequest,
+  GlobalLearningResponse,
   PathBrowserResponse,
   PromptRecipe,
   ReferenceAnalysisResponse,
@@ -109,6 +111,12 @@ export const api = {
     }),
   scanTraining: (payload: DatasetScanRequest) =>
     request<DatasetScanReport>("/api/training/scan", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  trainingJobs: () => request<TrainingJobConfig[]>("/api/training/jobs"),
+  createGlobalLearningJob: (payload: GlobalLearningRequest) =>
+    request<GlobalLearningResponse>("/api/learning/global-job", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
