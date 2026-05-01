@@ -260,9 +260,11 @@ def _claude_crop_box(
         "You are returning non-identifying crop coordinates for adult-only dataset preparation. "
         "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
         "Do not make a portrait crop. Do not preserve the full person. "
-        "For chest_detail, return breast_boxes around visible breast tissue or covered breast mounds only. "
+        "For chest_detail, return breast_boxes around the full visible breast shape and nipple_boxes around visible nipples/areolas. "
+        "The crop must include each visible nipple/areola and the full visible breast outline, not just cleavage or partial side detail. "
         "Do not include the face, head, eyes, mouth, neck-only area, arms-only area, or full torso in breast_boxes. "
-        "If you cannot isolate breast-region boxes, set visible_target false. "
+        "If visible nipples/areolas are cut off, hidden, or impossible to locate, set visible_target false. "
+        "If you cannot isolate full breast-region boxes, set visible_target false. "
         "Set face_box to null if no face is visible. "
         "If the requested target is not visible, set visible_target false. "
         f"Target: {target_label}. "
@@ -334,6 +336,15 @@ def _claude_crop_tool(target: str) -> dict:
                             "items": {"type": "number"},
                         },
                     },
+                    "nipple_boxes": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "minItems": 4,
+                            "maxItems": 4,
+                            "items": {"type": "number"},
+                        },
+                    },
                     "face_box": {
                         "type": ["array", "null"],
                         "minItems": 4,
@@ -341,7 +352,7 @@ def _claude_crop_tool(target: str) -> dict:
                         "items": {"type": "number"},
                     },
                 },
-                "required": ["visible_target", "breast_boxes", "face_box"],
+                "required": ["visible_target", "breast_boxes", "nipple_boxes", "face_box"],
                 "additionalProperties": False,
             },
         }
@@ -407,7 +418,7 @@ def _anthropic_error_message(response: httpx.Response) -> str:
 
 def _target_instruction(target: str) -> str:
     if target == "chest_detail":
-        return "tight breast-only crop; include visible breast tissue or covered breast mounds, exclude face/head/mouth/eyes and avoid full torso"
+        return "tight breast-only crop; include the full visible breast shape and visible nipples/areolas, exclude face/head/mouth/eyes and avoid full torso"
     if target == "upper_torso":
         return "upper torso region; shoulders/chest/waist context, avoid full face"
     return "full body context"
@@ -457,12 +468,15 @@ def _parse_claude_crop_response(data: dict) -> dict:
 def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: str) -> CropBox | None:
     face_box = _normalized_box(parsed.get("face_box"))
     breast_boxes = _normalized_boxes(parsed.get("breast_boxes"))
+    nipple_boxes = _normalized_boxes(parsed.get("nipple_boxes"))
     target_box = _normalized_box(parsed.get("target_box")) or _normalized_box(parsed.get("crop_box"))
     crop_box = _normalized_box(parsed.get("crop_box")) or target_box
     if target == "chest_detail":
         if not breast_boxes:
             return None
-        crop_box = _breast_region_crop(breast_boxes, face_box)
+        if not nipple_boxes:
+            return None
+        crop_box = _breast_region_crop(breast_boxes + nipple_boxes, face_box)
         if not _is_tight_chest_region(crop_box):
             return None
         return _normalized_box_to_pixels(crop_box, width, height)

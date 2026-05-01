@@ -354,6 +354,43 @@ def test_dataset_prep_ai_chest_crop_requires_breast_boxes() -> None:
     assert crop is None
 
 
+def test_dataset_prep_ai_chest_crop_requires_nipple_boxes() -> None:
+    crop = dataset_prepper._crop_box_from_ai_response(
+        {
+            "visible_target": True,
+            "breast_boxes": [[0.18, 0.28, 0.46, 0.62], [0.5, 0.27, 0.78, 0.62]],
+            "face_box": [0.3, 0.04, 0.68, 0.25],
+        },
+        1000,
+        1200,
+        "chest_detail",
+    )
+
+    assert crop is None
+
+
+def test_dataset_prep_ai_chest_crop_includes_full_breasts_and_nipples() -> None:
+    crop = dataset_prepper._crop_box_from_ai_response(
+        {
+            "visible_target": True,
+            "breast_boxes": [[0.18, 0.28, 0.46, 0.62], [0.5, 0.27, 0.78, 0.62]],
+            "nipple_boxes": [[0.31, 0.45, 0.36, 0.5], [0.62, 0.44, 0.67, 0.5]],
+            "face_box": [0.3, 0.04, 0.68, 0.25],
+        },
+        1000,
+        1200,
+        "chest_detail",
+    )
+
+    assert crop is not None
+    left, top, right, bottom = crop
+    assert left <= 180
+    assert right >= 780
+    assert top <= 336
+    assert bottom >= 744
+    assert top >= 300
+
+
 def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> None:
     crop = dataset_prepper._crop_box_from_ai_response(
         {
@@ -361,6 +398,7 @@ def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> 
             "crop_box": [0.04, 0.02, 0.95, 0.75],
             "target_box": [0.12, 0.12, 0.82, 0.65],
             "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
+            "nipple_boxes": [[0.34, 0.47, 0.38, 0.51], [0.61, 0.46, 0.65, 0.51]],
             "face_box": [0.3, 0.04, 0.68, 0.32],
         },
         1000,
@@ -398,6 +436,7 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
                         "input": {
                             "visible_target": True,
                             "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
+                            "nipple_boxes": [[0.34, 0.47, 0.38, 0.51], [0.61, 0.46, 0.65, 0.51]],
                             "face_box": [0.3, 0.04, 0.68, 0.32],
                         },
                     }
@@ -422,6 +461,7 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
     assert captured_payload["tool_choice"] == {"type": "tool", "name": "return_crop"}
     assert captured_payload["tools"][0]["name"] == "return_crop"
     assert "target_box" not in captured_payload["tools"][0]["input_schema"]["properties"]
+    assert "nipple_boxes" in captured_payload["tools"][0]["input_schema"]["required"]
 
 
 def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:
