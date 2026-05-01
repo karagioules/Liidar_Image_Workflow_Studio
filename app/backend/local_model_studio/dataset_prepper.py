@@ -257,16 +257,56 @@ def _claude_crop_box(
     encoded = _encode_image_for_ai(image)
     target_label = _target_instruction(target)
     prompt = (
-        "Return compact JSON only for adult-only dataset preparation. "
+        "You are returning non-identifying crop coordinates for adult-only dataset preparation. "
         "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
         "Do not make a portrait crop. Do not preserve the full person. "
         "For chest_detail, identify the visible breasts first and return breast_boxes around breast tissue/covered breast mounds only. "
         "The crop must tightly frame the requested anatomy/region and exclude the face, head, eyes, mouth, and unrelated torso whenever possible. "
-        "Report breast_boxes, target_box, and face_box. Set face_box to null if no face is visible. "
+        "Call the return_crop tool with breast_boxes, target_box, crop_box, and face_box. Set face_box to null if no face is visible. "
         "If the requested target is not visible, set visible_target false. "
         f"Target: {target_label}. "
-        'Schema: {"visible_target":true,"breast_boxes":[[0.25,0.34,0.48,0.58],[0.52,0.34,0.75,0.58]],"target_box":[0.25,0.34,0.75,0.58],"face_box":[0.35,0.05,0.65,0.28],"crop_box":[0.22,0.31,0.78,0.61],"confidence":0.0}'
+        "Do not describe the image. Return only coordinates through the tool."
     )
+    tool = {
+        "name": "return_crop",
+        "description": "Return the visible target region as normalized image coordinates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "visible_target": {"type": "boolean"},
+                "breast_boxes": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": {"type": "number"},
+                    },
+                },
+                "target_box": {
+                    "type": ["array", "null"],
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "number"},
+                },
+                "face_box": {
+                    "type": ["array", "null"],
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "number"},
+                },
+                "crop_box": {
+                    "type": ["array", "null"],
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "number"},
+                },
+                "confidence": {"type": "number"},
+            },
+            "required": ["visible_target", "breast_boxes", "target_box", "face_box", "crop_box", "confidence"],
+            "additionalProperties": False,
+        },
+    }
     try:
         response = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -279,6 +319,8 @@ def _claude_crop_box(
                 "model": model,
                 "max_tokens": 220,
                 "temperature": 0,
+                "tools": [tool],
+                "tool_choice": {"type": "tool", "name": "return_crop"},
                 "messages": [
                     {
                         "role": "user",
@@ -301,16 +343,15 @@ def _claude_crop_box(
         if response.status_code >= 400:
             return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
         data = response.json()
-        text = "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
-        parsed = _parse_ai_json(text)
+        parsed = _parse_claude_crop_response(data)
         if not parsed.get("visible_target"):
-            return None, "Claude did not find the requested target in at least one image; local crop fallback was used."
+            return None, "Claude did not find the requested target in at least one image; that image was skipped."
         crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
         if crop_box is None:
-            return None, "Claude returned an unusable crop box for at least one image; local crop fallback was used."
+            return None, "Claude returned an unusable crop box for at least one image; that image was skipped."
         return crop_box, None
     except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        return None, f"Claude AI crop failed for at least one image; local crop fallback was used. {exc}"
+        return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
 
 
 def _anthropic_error_message(response: httpx.Response) -> str:
@@ -355,6 +396,29 @@ def _parse_ai_json(text: str) -> dict:
     if not match:
         raise ValueError("No JSON object returned")
     return json.loads(match.group(0))
+
+
+def _parse_claude_crop_response(data: dict) -> dict:
+    content = data.get("content", [])
+    if not isinstance(content, list):
+        raise ValueError("Claude returned an invalid content block")
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "tool_use" and part.get("name") == "return_crop":
+            tool_input = part.get("input")
+            if isinstance(tool_input, dict):
+                return tool_input
+            if isinstance(tool_input, str):
+                return _parse_ai_json(tool_input)
+            raise ValueError("Claude returned an invalid tool crop payload")
+    text = "".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text")
+    if text.strip():
+        return _parse_ai_json(text)
+    stop_reason = data.get("stop_reason")
+    if stop_reason:
+        raise ValueError(f"Claude returned no crop coordinates (stop_reason={stop_reason})")
+    raise ValueError("Claude returned no crop coordinates")
 
 
 def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: str) -> CropBox | None:

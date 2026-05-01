@@ -379,6 +379,50 @@ def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> 
     assert bottom <= 760
 
 
+def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
+    captured_payload: dict | None = None
+
+    def fake_post(*args, **kwargs):
+        nonlocal captured_payload
+        captured_payload = kwargs["json"]
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "return_crop",
+                        "input": {
+                            "visible_target": True,
+                            "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
+                            "target_box": [0.12, 0.12, 0.82, 0.65],
+                            "face_box": [0.3, 0.04, 0.68, 0.32],
+                            "crop_box": [0.04, 0.02, 0.95, 0.75],
+                            "confidence": 0.88,
+                        },
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(dataset_prepper.httpx, "post", fake_post)
+
+    crop, warning = dataset_prepper._claude_crop_box(
+        Image.new("RGB", (1000, 1200), color=(220, 190, 170)),
+        "chest_detail",
+        anthropic_api_key="sk-ant-test",
+        model="claude-haiku-4-5-20251001",
+    )
+
+    assert warning is None
+    assert crop is not None
+    assert 130 <= crop[0] <= 230
+    assert 730 <= crop[2] <= 830
+    assert captured_payload is not None
+    assert captured_payload["tool_choice"] == {"type": "tool", "name": "return_crop"}
+    assert captured_payload["tools"][0]["name"] == "return_crop"
+
+
 def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "raw"
     output = tmp_path / "prepared"
