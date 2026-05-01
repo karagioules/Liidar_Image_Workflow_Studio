@@ -330,22 +330,6 @@ describe("App", () => {
     expect((screen.getByLabelText("Style notes") as HTMLTextAreaElement).value).toContain("reference-guided");
   });
 
-  it("adds reference images from the local path browser", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.type(
-      screen.getByLabelText("Browse from path"),
-      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna"
-    );
-    await user.click(screen.getByRole("button", { name: "Open path" }));
-    await user.click(await screen.findByRole("button", { name: /add sozee_2026-04-30_11-47-30.png/i }));
-
-    expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png").length).toBeGreaterThan(0);
-  });
-
   it("selects reference images from the native Windows picker control", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -366,9 +350,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /new character/i }));
     expect(screen.getByLabelText("Display name")).toHaveValue("");
 
-    await user.type(screen.getByLabelText("Browse from path"), "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna");
-    await user.click(screen.getByRole("button", { name: "Open path" }));
-    await user.click(await screen.findByRole("button", { name: /add visible files/i }));
+    await user.click(screen.getByRole("button", { name: /select folder/i }));
     expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /clear selected/i }));

@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, Folder, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -11,7 +11,6 @@ import type {
   DatasetType,
   FacePolicy,
   GenerationMode,
-  PathBrowserResponse,
   PromptRecipe,
   QualityPreset,
   ReferenceAnalysisResponse,
@@ -78,12 +77,6 @@ function parseReferencePaths(value: string): string[] {
 
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
-}
-
-function parentPath(path: string): string {
-  const normalized = path.trim();
-  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
-  return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized;
 }
 
 function displayNameFromReferencePaths(paths: string[]): string {
@@ -852,30 +845,10 @@ function TrainingPanel(props: {
 }
 
 function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (paths: string[]) => void }) {
-  const [browsePath, setBrowsePath] = useState(paths[0] ? parentPath(paths[0]) : "");
-  const [browser, setBrowser] = useState<PathBrowserResponse | null>(null);
   const [browserError, setBrowserError] = useState("");
-  const [isBrowsing, setIsBrowsing] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
 
-  const openPath = async (path = browsePath) => {
-    try {
-      setIsBrowsing(true);
-      setBrowserError("");
-      const result = await api.browseFilesystem(path);
-      setBrowser(result);
-      setBrowsePath(result.current_path ?? path);
-    } catch (caught) {
-      setBrowserError(caught instanceof Error ? caught.message : "Unable to open path.");
-    } finally {
-      setIsBrowsing(false);
-    }
-  };
-
-  const addPath = (path: string) => onChange(uniquePaths([...paths, path]));
-  const visibleFilePaths = browser?.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path) ?? [];
-  const addVisibleFiles = () => onChange(uniquePaths([...paths, ...visibleFilePaths]));
   const removePath = (path: string) => onChange(paths.filter((candidate) => candidate !== path));
   const clearPaths = () => onChange([]);
   const selectReferences = async (mode: "files" | "folder") => {
@@ -918,59 +891,6 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
       </div>
       {importMessage ? <div className="inline-success">{importMessage}</div> : null}
       {browserError ? <div className="inline-error">{browserError}</div> : null}
-      <details className="path-fallback">
-        <summary>Browse by typed path</summary>
-        <div className="path-open-row">
-          <label>
-            Browse from path
-            <input value={browsePath} onChange={(event) => setBrowsePath(event.target.value)} placeholder="H:/DevWork/Win_Apps/Liidar/Models/Marianna" />
-          </label>
-          <button type="button" className="secondary-button inline-button" onClick={() => void openPath()} disabled={isBrowsing}>
-            <FolderOpen aria-hidden="true" />
-            Open path
-          </button>
-        </div>
-        {browser ? (
-          <div className="path-browser">
-            <div className="path-browser-bar">
-              <strong>{browser.current_path ?? "Local roots"}</strong>
-              <div className="mini-actions">
-                {visibleFilePaths.length ? (
-                  <button type="button" className="mini-button" onClick={addVisibleFiles}>
-                    <Plus aria-hidden="true" />
-                    Add visible files
-                  </button>
-                ) : null}
-                {browser.parent_path ? (
-                  <button type="button" className="mini-button" onClick={() => void openPath(browser.parent_path ?? "")}>
-                    Up
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <div className="path-entry-list">
-              {browser.entries.map((entry) => (
-                <div className="path-entry" key={entry.path}>
-                  <div>
-                    {entry.kind === "file" ? <img className="path-thumb mini-thumb" src={api.thumbnailUrl(entry.path)} alt="" /> : <Folder aria-hidden="true" />}
-                    <span>{entry.name}</span>
-                  </div>
-                  {entry.kind === "file" ? (
-                    <button type="button" className="mini-button" onClick={() => addPath(entry.path)} aria-label={`Add ${entry.name}`}>
-                      <Plus aria-hidden="true" />
-                      Add
-                    </button>
-                  ) : (
-                    <button type="button" className="mini-button" onClick={() => void openPath(entry.path)} aria-label={`Open ${entry.name}`}>
-                      Open
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </details>
       <div className="selected-paths">
         {paths.length ? (
           <div className="selected-paths-bar">

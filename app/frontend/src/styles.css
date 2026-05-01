@@ -428,8 +428,6 @@ textarea {
 }
 
 .path-module-heading,
-.path-browser-bar,
-.path-entry,
 .selected-path,
 .selected-paths-bar {
   display: flex;
@@ -448,13 +446,6 @@ textarea {
   margin: 3px 0 0;
   color: #607083;
   font-size: 0.84rem;
-}
-
-.path-open-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
 }
 
 .picker-actions {
@@ -488,64 +479,11 @@ textarea {
   color: #8a1f2d;
 }
 
-.path-fallback summary {
-  cursor: pointer;
-  color: #334155;
-  font-weight: 700;
-}
-
-.path-fallback .path-open-row {
-  margin-top: 10px;
-}
-
-.path-browser {
-  margin-top: 10px;
-  border: 1px solid #dce3ea;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.path-browser-bar {
-  padding: 10px;
-  border-bottom: 1px solid #dce3ea;
-}
-
-.path-browser-bar strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.path-entry-list {
-  display: grid;
-  max-height: 260px;
-  overflow: auto;
-}
-
-.path-entry {
-  padding: 9px 10px;
-  border-bottom: 1px solid #eef2f6;
-}
-
-.path-entry:last-child {
-  border-bottom: 0;
-}
-
-.path-entry div,
-.mini-actions,
 .mini-button,
 .icon-mini-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.mini-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.path-entry div {
-  min-width: 0;
 }
 
 .path-thumb {
@@ -558,12 +496,6 @@ textarea {
   background: #eef2f6;
 }
 
-.mini-thumb {
-  width: 34px;
-  height: 34px;
-}
-
-.path-entry span,
 .selected-path span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1118,7 +1050,6 @@ body {
 .notice,
 .metric,
 .path-module,
-.path-browser,
 .selected-path,
 .analysis-panel,
 .reference-intelligence,
@@ -1141,10 +1072,7 @@ body {
 
 .list-rail,
 .advanced-fields,
-.recipe-box,
-.path-browser-bar,
-.path-entry,
-.path-entry:last-child {
+.recipe-box {
   border-color: #253649;
 }
 
@@ -1163,9 +1091,7 @@ body {
 
 label,
 .advanced-fields summary,
-.path-fallback summary,
 .paste-paths summary,
-.path-browser-bar strong,
 .attribute-card p,
 .adult-signal-card dd,
 .body-cue-list dd,
@@ -1298,11 +1224,6 @@ textarea:focus {
   border-color: #31445a;
 }
 
-.path-entry {
-  background: #111a24;
-}
-
-.path-entry:hover,
 .selected-path:hover {
   background: #152232;
 }
