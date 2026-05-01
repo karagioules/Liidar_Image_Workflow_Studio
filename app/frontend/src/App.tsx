@@ -135,6 +135,11 @@ function trainingPresetSettings(preset: TrainingPreset) {
   return { max_train_steps: 1200, learning_rate: 0.0001, network_dim: 32, network_alpha: 16, repeats: 10 };
 }
 
+function aiCostEstimate(imageCount: number) {
+  const count = Math.max(0, imageCount);
+  return `$${(count * 0.0008).toFixed(2)}-$${(count * 0.0016).toFixed(2)}`;
+}
+
 function packNameFromDataset(name: string, type: DatasetType) {
   const base = name.trim() || `global-${type}`;
   return base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "global_improvement_pack";
@@ -176,7 +181,7 @@ function App() {
   const [prepTarget, setPrepTarget] = useState<DatasetPrepTarget>("chest_detail");
   const [prepRecursive, setPrepRecursive] = useState(true);
   const [prepUseAi, setPrepUseAi] = useState(false);
-  const [prepAiMaxImages, setPrepAiMaxImages] = useState(500);
+  const [prepAiMaxImages, setPrepAiMaxImages] = useState(100);
   const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [anthropicModel, setAnthropicModel] = useState("claude-haiku-4-5-20251001");
@@ -915,7 +920,7 @@ function DatasetPrepPanel(props: {
   const isCancelable = Boolean(props.job && ["queued", "running", "cancelling"].includes(props.job.status));
   const aiModeText = props.useAi
     ? props.anthropicKeySaved
-      ? `Claude AI enabled for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; the rest use local cropping.`
+      ? `Claude AI enabled for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; estimated scan cost ${aiCostEstimate(props.aiMaxImages)}.`
       : "Claude AI is selected but no saved key is available."
     : "Claude AI is off. This run will use local cropping only.";
   return (
@@ -971,7 +976,7 @@ function DatasetPrepPanel(props: {
         <section className="api-key-panel">
           <div className="panel-heading">
             <h3>Claude AI scan</h3>
-            <p>Optional. Uses Claude 3 Haiku by default for low-cost vision checks.</p>
+            <p>Optional. Uses Claude Haiku 4.5 with compressed image payloads for lower-cost vision checks.</p>
           </div>
           <div className="form-grid two-column">
             <label>

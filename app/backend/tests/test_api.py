@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import io
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -336,7 +338,7 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
     assert Path(body["images"][0]["output_path"]).is_file()
 
 
-def test_dataset_prep_ai_chest_crop_prefers_target_box_and_excludes_face() -> None:
+def test_dataset_prep_ai_chest_crop_requires_breast_boxes() -> None:
     crop = dataset_prepper._crop_box_from_ai_response(
         {
             "visible_target": True,
@@ -349,12 +351,7 @@ def test_dataset_prep_ai_chest_crop_prefers_target_box_and_excludes_face() -> No
         "chest_detail",
     )
 
-    assert crop is not None
-    left, top, right, bottom = crop
-    assert left < 240
-    assert right > 780
-    assert top >= 372
-    assert bottom <= 740
+    assert crop is None
 
 
 def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> None:
@@ -379,6 +376,12 @@ def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> 
     assert bottom <= 760
 
 
+def test_dataset_prep_ai_image_payload_is_cost_capped() -> None:
+    encoded = dataset_prepper._encode_image_for_ai(Image.new("RGB", (3000, 2200), color=(220, 190, 170)))
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as resized:
+        assert max(resized.size) == 512
+
+
 def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
     captured_payload: dict | None = None
 
@@ -395,10 +398,7 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
                         "input": {
                             "visible_target": True,
                             "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
-                            "target_box": [0.12, 0.12, 0.82, 0.65],
                             "face_box": [0.3, 0.04, 0.68, 0.32],
-                            "crop_box": [0.04, 0.02, 0.95, 0.75],
-                            "confidence": 0.88,
                         },
                     }
                 ]
@@ -421,6 +421,7 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
     assert captured_payload is not None
     assert captured_payload["tool_choice"] == {"type": "tool", "name": "return_crop"}
     assert captured_payload["tools"][0]["name"] == "return_crop"
+    assert "target_box" not in captured_payload["tools"][0]["input_schema"]["properties"]
 
 
 def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:

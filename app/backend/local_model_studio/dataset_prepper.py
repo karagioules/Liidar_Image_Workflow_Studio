@@ -260,14 +260,92 @@ def _claude_crop_box(
         "You are returning non-identifying crop coordinates for adult-only dataset preparation. "
         "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
         "Do not make a portrait crop. Do not preserve the full person. "
-        "For chest_detail, identify the visible breasts first and return breast_boxes around breast tissue/covered breast mounds only. "
-        "The crop must tightly frame the requested anatomy/region and exclude the face, head, eyes, mouth, and unrelated torso whenever possible. "
-        "Call the return_crop tool with breast_boxes, target_box, crop_box, and face_box. Set face_box to null if no face is visible. "
+        "For chest_detail, return breast_boxes around visible breast tissue or covered breast mounds only. "
+        "Do not include the face, head, eyes, mouth, neck-only area, arms-only area, or full torso in breast_boxes. "
+        "If you cannot isolate breast-region boxes, set visible_target false. "
+        "Set face_box to null if no face is visible. "
         "If the requested target is not visible, set visible_target false. "
         f"Target: {target_label}. "
         "Do not describe the image. Return only coordinates through the tool."
     )
-    tool = {
+    tool = _claude_crop_tool(target)
+    try:
+        response = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": 120,
+                "temperature": 0,
+                "tools": [tool],
+                "tool_choice": {"type": "tool", "name": "return_crop"},
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": encoded,
+                                },
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+            },
+            timeout=45,
+        )
+        if response.status_code >= 400:
+            return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
+        data = response.json()
+        parsed = _parse_claude_crop_response(data)
+        if not parsed.get("visible_target"):
+            return None, "Claude did not find a tight target crop in at least one image; that image was skipped."
+        crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
+        if crop_box is None:
+            return None, "Claude returned a broad or unusable crop for at least one image; that image was skipped."
+        return crop_box, None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
+
+
+def _claude_crop_tool(target: str) -> dict:
+    if target == "chest_detail":
+        return {
+            "name": "return_crop",
+            "description": "Return tight breast-region crop coordinates.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "visible_target": {"type": "boolean"},
+                    "breast_boxes": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "minItems": 4,
+                            "maxItems": 4,
+                            "items": {"type": "number"},
+                        },
+                    },
+                    "face_box": {
+                        "type": ["array", "null"],
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": {"type": "number"},
+                    },
+                },
+                "required": ["visible_target", "breast_boxes", "face_box"],
+                "additionalProperties": False,
+            },
+        }
+    return {
         "name": "return_crop",
         "description": "Return the visible target region as normalized image coordinates.",
         "input_schema": {
@@ -307,51 +385,6 @@ def _claude_crop_box(
             "additionalProperties": False,
         },
     }
-    try:
-        response = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": anthropic_api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": 220,
-                "temperature": 0,
-                "tools": [tool],
-                "tool_choice": {"type": "tool", "name": "return_crop"},
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": encoded,
-                                },
-                            },
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
-                ],
-            },
-            timeout=45,
-        )
-        if response.status_code >= 400:
-            return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
-        data = response.json()
-        parsed = _parse_claude_crop_response(data)
-        if not parsed.get("visible_target"):
-            return None, "Claude did not find the requested target in at least one image; that image was skipped."
-        crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
-        if crop_box is None:
-            return None, "Claude returned an unusable crop box for at least one image; that image was skipped."
-        return crop_box, None
-    except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
 
 
 def _anthropic_error_message(response: httpx.Response) -> str:
@@ -382,9 +415,9 @@ def _target_instruction(target: str) -> str:
 
 def _encode_image_for_ai(image: Image.Image) -> str:
     resized = image.copy()
-    resized.thumbnail((768, 768))
+    resized.thumbnail((512, 512))
     buffer = io.BytesIO()
-    resized.save(buffer, format="JPEG", quality=82)
+    resized.save(buffer, format="JPEG", quality=78)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
@@ -426,8 +459,12 @@ def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: st
     breast_boxes = _normalized_boxes(parsed.get("breast_boxes"))
     target_box = _normalized_box(parsed.get("target_box")) or _normalized_box(parsed.get("crop_box"))
     crop_box = _normalized_box(parsed.get("crop_box")) or target_box
-    if target == "chest_detail" and breast_boxes:
+    if target == "chest_detail":
+        if not breast_boxes:
+            return None
         crop_box = _breast_region_crop(breast_boxes, face_box)
+        if not _is_tight_chest_region(crop_box):
+            return None
         return _normalized_box_to_pixels(crop_box, width, height)
 
     if target_box is None or crop_box is None:
@@ -519,6 +556,19 @@ def _clamp_normalized_box(box: NormalizedBox) -> NormalizedBox:
     right = max(left + 0.01, min(right, 1.0))
     bottom = max(top + 0.01, min(bottom, 1.0))
     return left, top, right, bottom
+
+
+def _is_tight_chest_region(box: NormalizedBox) -> bool:
+    left, top, right, bottom = box
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        return False
+    if height > 0.52:
+        return False
+    if height / width > 1.25:
+        return False
+    return True
 
 
 def _normalized_box_to_pixels(box: NormalizedBox, width: int, height: int) -> CropBox:
