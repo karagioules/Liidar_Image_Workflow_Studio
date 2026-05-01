@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import local_model_studio.main as main_module
+import local_model_studio.runtime_check as runtime_check
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -85,6 +86,21 @@ def test_live_system_metrics_route_returns_usage(tmp_path: Path) -> None:
     assert body["ram_percent"] >= 0
     assert body["process_memory_mb"] > 0
     assert "timestamp" in body
+
+
+def test_gpu_counter_probe_treats_idle_gpu_as_zero(monkeypatch) -> None:
+    runtime_check._GPU_COUNTER_CACHE = None
+    monkeypatch.setattr(runtime_check.platform, "system", lambda: "Windows")
+
+    class Completed:
+        stdout = '{"GpuPercent":0,"DedicatedBytes":123456789,"Provider":"Windows performance counters"}'
+
+    monkeypatch.setattr(runtime_check.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    metrics = runtime_check.build_live_system_metrics()
+
+    assert metrics.gpu_percent == 0
+    assert "GPU utilization counter is unavailable." not in metrics.warnings
 
 
 def test_generate_preview_returns_recipe_containing_scene_prompt(tmp_path: Path) -> None:
