@@ -6,6 +6,7 @@ export type FacePolicy = "reject_faces" | "redact_faces" | "body_part_crops_only
 export type SourceRights = "synthetic" | "owned" | "licensed" | "consented";
 export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | "unclear";
 export type DatasetPrepTarget = "chest_detail" | "upper_torso" | "full_body_context";
+export type DatasetPrepJobState = "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
 
 export interface CharacterProfile {
   id: string;
@@ -226,6 +227,27 @@ export interface DatasetPrepResponse {
   fallback_count: number;
   warnings: string[];
   images: DatasetPrepImage[];
+}
+
+export interface DatasetPrepJobStatus {
+  job_id: string;
+  status: DatasetPrepJobState;
+  total_count: number;
+  processed_count: number;
+  cropped_count: number;
+  skipped_count: number;
+  ai_guided_count: number;
+  face_guided_count: number;
+  fallback_count: number;
+  active_file: string | null;
+  output_folder: string | null;
+  use_ai: boolean;
+  ai_max_images: number;
+  cancel_requested: boolean;
+  error: string | null;
+  result: DatasetPrepResponse | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TrainingConfigRequest {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from PIL import Image
 from local_model_studio.local_image_tagger import _preferred_providers
 from local_model_studio.main import create_app
 from local_model_studio.paths import WorkspacePaths
+from local_model_studio.schemas import DatasetPrepResponse
 
 
 class FakeComfyClient:
@@ -276,6 +278,71 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
     assert body["images"][0]["accepted"] is True
     assert body["images"][0]["output_path"].endswith(".jpg")
     assert Path(body["images"][0]["output_path"]).is_file()
+
+
+def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    output = tmp_path / "prepared"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+
+    def fake_prepare_dataset_crops(request, *, anthropic_api_key=None, progress_callback=None, cancel_event=None):
+        if progress_callback:
+            progress_callback(
+                {
+                    "total_count": 1,
+                    "processed_count": 1,
+                    "cropped_count": 1,
+                    "skipped_count": 0,
+                    "ai_guided_count": 1,
+                    "face_guided_count": 0,
+                    "fallback_count": 0,
+                    "active_file": str(source / "body.jpg"),
+                    "output_folder": str(output),
+                }
+            )
+        return DatasetPrepResponse(
+            output_folder=str(output),
+            processed_count=1,
+            cropped_count=1,
+            skipped_count=0,
+            ai_guided_count=1,
+            face_guided_count=0,
+            fallback_count=0,
+            warnings=[],
+            images=[],
+        )
+
+    monkeypatch.setattr("local_model_studio.dataset_prep_jobs.prepare_dataset_crops", fake_prepare_dataset_crops)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    started = client.post(
+        "/api/dataset-prep/jobs",
+        json={
+            "source_folder": str(source),
+            "output_folder": str(output),
+            "target": "chest_detail",
+            "recursive": True,
+            "use_ai": True,
+        },
+    )
+
+    assert started.status_code == 200
+    job_id = started.json()["job_id"]
+    status = client.get(f"/api/dataset-prep/jobs/{job_id}")
+    for _ in range(20):
+        if status.json()["status"] == "completed":
+            break
+        time.sleep(0.05)
+        status = client.get(f"/api/dataset-prep/jobs/{job_id}")
+
+    body = status.json()
+    assert body["status"] == "completed"
+    assert body["total_count"] == 1
+    assert body["processed_count"] == 1
+    assert body["cropped_count"] == 1
+    assert body["ai_guided_count"] == 1
+    assert body["result"]["output_folder"] == str(output)
 
 
 def test_select_reference_images_uses_native_picker_result(tmp_path: Path, monkeypatch) -> None:

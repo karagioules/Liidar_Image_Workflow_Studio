@@ -1,6 +1,7 @@
 import type {
   ApiKeyStatus,
   CharacterProfile,
+  DatasetPrepJobStatus,
   DatasetPrepRequest,
   DatasetPrepResponse,
   DatasetScanReport,
@@ -110,6 +111,16 @@ export const api = {
     request<DatasetPrepResponse>("/api/dataset-prep/crop", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  startDatasetPrepJob: (payload: DatasetPrepRequest) =>
+    request<DatasetPrepJobStatus>("/api/dataset-prep/jobs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  datasetPrepJob: (jobId: string) => request<DatasetPrepJobStatus>(`/api/dataset-prep/jobs/${jobId}`),
+  cancelDatasetPrepJob: (jobId: string) =>
+    request<DatasetPrepJobStatus>(`/api/dataset-prep/jobs/${jobId}/cancel`, {
+      method: "POST"
     }),
   createTrainingConfig: (payload: { request: TrainingConfigRequest; accepted_image_count: number }) =>
     request<TrainingJobConfig>("/api/training/config", {

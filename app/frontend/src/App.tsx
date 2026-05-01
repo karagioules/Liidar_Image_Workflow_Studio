@@ -7,6 +7,7 @@ import type {
   AdultContentSignals,
   AttributeDetail,
   CharacterProfile,
+  DatasetPrepJobStatus,
   DatasetPrepResponse,
   DatasetPrepTarget,
   DatasetScanReport,
@@ -179,6 +180,7 @@ function App() {
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [anthropicModel, setAnthropicModel] = useState("claude-3-haiku-20240307");
   const [prepReport, setPrepReport] = useState<DatasetPrepResponse | null>(null);
+  const [prepJob, setPrepJob] = useState<DatasetPrepJobStatus | null>(null);
   const [isPreparingDataset, setIsPreparingDataset] = useState(false);
 
   useEffect(() => {
@@ -215,6 +217,47 @@ function App() {
       setEditingCharacter(selected);
     }
   }, [characters, selectedCharacterId]);
+
+  useEffect(() => {
+    if (!prepJob || !["queued", "running", "cancelling"].includes(prepJob.status)) {
+      return;
+    }
+    let cancelled = false;
+    const intervalId = window.setInterval(async () => {
+      try {
+        const status = await api.datasetPrepJob(prepJob.job_id);
+        if (cancelled) {
+          return;
+        }
+        setPrepJob(status);
+        if (status.result) {
+          setPrepReport(status.result);
+          setPrepOutputFolder(status.result.output_folder);
+        }
+        if (["completed", "cancelled", "failed"].includes(status.status)) {
+          setIsPreparingDataset(false);
+          if (status.status === "completed" && status.result) {
+            setMessage(`Dataset prep created ${status.result.cropped_count} crop${status.result.cropped_count === 1 ? "" : "s"}.`);
+          }
+          if (status.status === "cancelled") {
+            setMessage("Dataset prep cancelled.");
+          }
+          if (status.status === "failed" && status.error) {
+            setError(status.error);
+          }
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setIsPreparingDataset(false);
+          setError(caught instanceof Error ? caught.message : "Unable to read dataset prep progress.");
+        }
+      }
+    }, 900);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [prepJob]);
 
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? characters[0],
@@ -338,7 +381,8 @@ function App() {
       setError("");
       setMessage("");
       setIsPreparingDataset(true);
-      const report = await api.prepDatasetCrops({
+      setPrepReport(null);
+      const job = await api.startDatasetPrepJob({
         source_folder: prepSourceFolder,
         output_folder: prepOutputFolder.trim() ? prepOutputFolder : null,
         target: prepTarget,
@@ -347,13 +391,23 @@ function App() {
         ai_max_images: prepAiMaxImages,
         ai_model: anthropicModel
       });
-      setPrepReport(report);
-      setPrepOutputFolder(report.output_folder);
-      setMessage(`Dataset prep created ${report.cropped_count} crop${report.cropped_count === 1 ? "" : "s"}.`);
+      setPrepJob(job);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to prep dataset crops.");
-    } finally {
       setIsPreparingDataset(false);
+    }
+  }
+
+  async function cancelDatasetPrep() {
+    if (!prepJob) {
+      return;
+    }
+    try {
+      setError("");
+      const status = await api.cancelDatasetPrepJob(prepJob.job_id);
+      setPrepJob(status);
+    } finally {
+      setMessage("Cancelling dataset prep...");
     }
   }
 
@@ -545,6 +599,7 @@ function App() {
             anthropicKeyInput={anthropicKeyInput}
             anthropicModel={anthropicModel}
             report={prepReport}
+            job={prepJob}
             isPreparing={isPreparingDataset}
             onSourceFolderChange={setPrepSourceFolder}
             onOutputFolderChange={setPrepOutputFolder}
@@ -558,6 +613,7 @@ function App() {
             onSelectSource={() => void selectPrepFolder("source")}
             onSelectOutput={() => void selectPrepFolder("output")}
             onRun={() => void runDatasetPrep()}
+            onCancel={() => void cancelDatasetPrep()}
           />
         ) : null}
       </main>
@@ -818,6 +874,7 @@ function DatasetPrepPanel(props: {
   anthropicKeyInput: string;
   anthropicModel: string;
   report: DatasetPrepResponse | null;
+  job: DatasetPrepJobStatus | null;
   isPreparing: boolean;
   onSourceFolderChange: (value: string) => void;
   onOutputFolderChange: (value: string) => void;
@@ -831,9 +888,19 @@ function DatasetPrepPanel(props: {
   onSelectSource: () => void;
   onSelectOutput: () => void;
   onRun: () => void;
+  onCancel: () => void;
 }) {
   const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing;
   const previewImages = props.report?.images.filter((image) => image.accepted).slice(0, 12) ?? [];
+  const progressTotal = props.job?.total_count ?? 0;
+  const progressProcessed = props.job?.processed_count ?? 0;
+  const progressPercent = progressTotal > 0 ? Math.round((progressProcessed / progressTotal) * 100) : props.isPreparing ? 4 : 0;
+  const isCancelable = Boolean(props.job && ["queued", "running", "cancelling"].includes(props.job.status));
+  const aiModeText = props.useAi
+    ? props.anthropicKeySaved
+      ? `Claude AI enabled for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; the rest use local cropping.`
+      : "Claude AI is selected but no saved key is available."
+    : "Claude AI is off. This run will use local cropping only.";
   return (
     <section className="training-layout dataset-prep-layout">
       <div className="panel training-overview">
@@ -843,7 +910,7 @@ function DatasetPrepPanel(props: {
         </div>
         <div className="prep-note">
           <strong>Detection mode</strong>
-          <span>Uses local face-guided geometry first. Review fallback crops before training.</span>
+          <span>{aiModeText}</span>
         </div>
       </div>
 
@@ -929,10 +996,35 @@ function DatasetPrepPanel(props: {
             <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
           </div>
         </section>
-        <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
-          <Scissors aria-hidden="true" />
-          {props.isPreparing ? "Preparing crops" : "Create crop folder"}
-        </button>
+        <div className="actions compact-actions">
+          <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
+            <Scissors aria-hidden="true" />
+            {props.isPreparing ? "Preparing crops" : "Create crop folder"}
+          </button>
+          {isCancelable ? (
+            <button type="button" className="secondary-button danger-button" onClick={props.onCancel} disabled={props.job?.status === "cancelling"}>
+              <X aria-hidden="true" />
+              {props.job?.status === "cancelling" ? "Cancelling" : "Cancel"}
+            </button>
+          ) : null}
+        </div>
+        {props.job ? (
+          <section className="prep-progress-panel">
+            <div className="prep-progress-header">
+              <strong>{labelize(props.job.status)}</strong>
+              <span>{progressProcessed} / {progressTotal || "?"} images</span>
+            </div>
+            <div className="progress-track" aria-label="Dataset prep progress" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} />
+            </div>
+            <div className="prep-progress-meta">
+              <span>{props.job.use_ai ? `AI scan on: ${props.job.ai_guided_count} AI-guided crop${props.job.ai_guided_count === 1 ? "" : "s"}` : "AI scan off: local cropping only"}</span>
+              <span>{props.job.fallback_count} fallback crop{props.job.fallback_count === 1 ? "" : "s"}</span>
+              {props.job.active_file ? <span>Current: {props.job.active_file}</span> : null}
+              {props.job.error ? <span className="error-text">{props.job.error}</span> : null}
+            </div>
+          </section>
+        ) : null}
       </div>
 
       {props.report ? (

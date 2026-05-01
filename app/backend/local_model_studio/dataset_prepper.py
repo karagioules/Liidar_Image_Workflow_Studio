@@ -6,6 +6,8 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+from threading import Event
+from collections.abc import Callable
 
 import httpx
 from PIL import Image, UnidentifiedImageError
@@ -16,9 +18,16 @@ from local_model_studio.schemas import DatasetPrepImage, DatasetPrepRequest, Dat
 
 CropBox = tuple[int, int, int, int]
 FaceBox = tuple[int, int, int, int]
+ProgressCallback = Callable[[dict[str, object]], None]
 
 
-def prepare_dataset_crops(request: DatasetPrepRequest, *, anthropic_api_key: str | None = None) -> DatasetPrepResponse:
+def prepare_dataset_crops(
+    request: DatasetPrepRequest,
+    *,
+    anthropic_api_key: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+    cancel_event: Event | None = None,
+) -> DatasetPrepResponse:
     source_folder = request.source_folder
     if not source_folder.is_dir():
         raise ValueError(f"source_folder does not exist or is not a directory: {source_folder}")
@@ -34,16 +43,43 @@ def prepare_dataset_crops(request: DatasetPrepRequest, *, anthropic_api_key: str
     ai_guided_count = 0
     face_guided_count = 0
     fallback_count = 0
+    cancelled = False
+
+    _report_progress(
+        progress_callback,
+        total_count=len(image_paths),
+        processed_count=0,
+        cropped_count=0,
+        skipped_count=0,
+        ai_guided_count=0,
+        face_guided_count=0,
+        fallback_count=0,
+        active_file=None,
+        output_folder=str(output_folder),
+    )
 
     for index, image_path in enumerate(image_paths, start=1):
+        if cancel_event and cancel_event.is_set():
+            cancelled = True
+            break
+        _report_progress(
+            progress_callback,
+            total_count=len(image_paths),
+            processed_count=len(images),
+            cropped_count=sum(1 for image in images if image.accepted),
+            skipped_count=sum(1 for image in images if not image.accepted),
+            ai_guided_count=ai_guided_count,
+            face_guided_count=face_guided_count,
+            fallback_count=fallback_count,
+            active_file=str(image_path),
+            output_folder=str(output_folder),
+        )
         try:
             with Image.open(image_path) as image:
                 image = image.convert("RGB")
-                faces, face_warning = _detect_faces(image_path)
-                if face_warning and face_warning not in warnings:
-                    warnings.append(face_warning)
-
-                crop_box, method = _crop_box_for(image.size, faces, request.target)
+                faces: list[FaceBox] = []
+                crop_box: CropBox | None = None
+                method = "skipped"
                 if request.use_ai and index <= request.ai_max_images:
                     if not anthropic_api_key:
                         raise ValueError("Claude API key is required when AI scanning is enabled.")
@@ -58,6 +94,11 @@ def prepare_dataset_crops(request: DatasetPrepRequest, *, anthropic_api_key: str
                     if ai_crop_box is not None:
                         crop_box = ai_crop_box
                         method = "ai_guided"
+                if crop_box is None:
+                    faces, face_warning = _detect_faces(image_path)
+                    if face_warning and face_warning not in warnings:
+                        warnings.append(face_warning)
+                    crop_box, method = _crop_box_for(image.size, faces, request.target)
 
                 if crop_box is None:
                     images.append(
@@ -111,15 +152,29 @@ def prepare_dataset_crops(request: DatasetPrepRequest, *, anthropic_api_key: str
                     output_path=None,
                 )
             )
+        _report_progress(
+            progress_callback,
+            total_count=len(image_paths),
+            processed_count=len(images),
+            cropped_count=sum(1 for image in images if image.accepted),
+            skipped_count=sum(1 for image in images if not image.accepted),
+            ai_guided_count=ai_guided_count,
+            face_guided_count=face_guided_count,
+            fallback_count=fallback_count,
+            active_file=str(image_path),
+            output_folder=str(output_folder),
+        )
 
     accepted_count = sum(1 for image in images if image.accepted)
     skipped_count = len(images) - accepted_count
+    if cancelled:
+        warnings.append("Dataset prep was cancelled. Partial crops remain in the output folder.")
     if fallback_count:
         warnings.append(
             f"{fallback_count} crop(s) used center fallback because a face/body anchor was not detected; review those outputs manually."
         )
 
-    return DatasetPrepResponse(
+    response = DatasetPrepResponse(
         output_folder=str(output_folder),
         processed_count=len(images),
         cropped_count=accepted_count,
@@ -130,6 +185,24 @@ def prepare_dataset_crops(request: DatasetPrepRequest, *, anthropic_api_key: str
         warnings=warnings,
         images=images,
     )
+    _report_progress(
+        progress_callback,
+        total_count=len(image_paths),
+        processed_count=response.processed_count,
+        cropped_count=response.cropped_count,
+        skipped_count=response.skipped_count,
+        ai_guided_count=response.ai_guided_count,
+        face_guided_count=response.face_guided_count,
+        fallback_count=response.fallback_count,
+        active_file=None,
+        output_folder=response.output_folder,
+    )
+    return response
+
+
+def _report_progress(callback: ProgressCallback | None, **payload: object) -> None:
+    if callback:
+        callback(payload)
 
 
 def _default_output_folder(target: str) -> Path:
@@ -140,23 +213,7 @@ def _default_output_folder(target: str) -> Path:
 
 
 def _detect_faces(image_path: Path) -> tuple[list[FaceBox], str | None]:
-    try:
-        import cv2  # type: ignore[import-not-found]
-    except Exception:
-        return [], "OpenCV face detector unavailable; using center fallback crops."
-
-    cascade_path = getattr(cv2.data, "haarcascades", "") + "haarcascade_frontalface_default.xml"
-    classifier = cv2.CascadeClassifier(cascade_path)
-    if classifier.empty():
-        return [], "OpenCV face detector cascade unavailable; using center fallback crops."
-
-    image = cv2.imread(str(image_path))
-    if image is None:
-        return [], "OpenCV could not read at least one image for face-guided cropping."
-
-    grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    faces = classifier.detectMultiScale(grayscale, scaleFactor=1.1, minNeighbors=5)
-    return [(int(x), int(y), int(w), int(h)) for x, y, w, h in faces], None
+    return [], "Local face detector disabled for stable background prep; using center fallback crops."
 
 
 def _claude_crop_box(

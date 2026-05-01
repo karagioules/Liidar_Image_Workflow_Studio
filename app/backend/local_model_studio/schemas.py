@@ -14,6 +14,7 @@ GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "r
 SeedStrategy = Literal["locked", "vary", "reuse_last"]
 VisibilityLevel = Literal["clear", "partial", "covered", "not_visible", "unclear"]
 DatasetPrepTarget = Literal["chest_detail", "upper_torso", "full_body_context"]
+DatasetPrepJobState = Literal["queued", "running", "cancelling", "cancelled", "completed", "failed"]
 
 
 class CharacterProfile(BaseModel):
@@ -231,6 +232,27 @@ class DatasetPrepResponse(BaseModel):
     fallback_count: int
     warnings: list[str] = Field(default_factory=list)
     images: list[DatasetPrepImage] = Field(default_factory=list)
+
+
+class DatasetPrepJobStatus(BaseModel):
+    job_id: str
+    status: DatasetPrepJobState
+    total_count: int = 0
+    processed_count: int = 0
+    cropped_count: int = 0
+    skipped_count: int = 0
+    ai_guided_count: int = 0
+    face_guided_count: int = 0
+    fallback_count: int = 0
+    active_file: str | None = None
+    output_folder: str | None = None
+    use_ai: bool = False
+    ai_max_images: int = 0
+    cancel_requested: bool = False
+    error: str | None = None
+    result: DatasetPrepResponse | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ApiKeyStatus(BaseModel):

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from local_model_studio.api_key_store import ApiKeyStore
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
+from local_model_studio.dataset_prep_jobs import DatasetPrepJobManager
 from local_model_studio.dataset_prepper import prepare_dataset_crops
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
 from local_model_studio.local_image_tagger import local_tagger_from_workspace
@@ -24,6 +25,7 @@ from local_model_studio.schemas import (
     CharacterProfile,
     ApiKeyPayload,
     ApiKeyStatus,
+    DatasetPrepJobStatus,
     DatasetPrepRequest,
     DatasetPrepResponse,
     GenerationJobResponse,
@@ -69,6 +71,7 @@ def create_app(
     profiles = ProfileStore(workspace_paths)
     training = TrainingStore(workspace_paths)
     api_keys = ApiKeyStore(workspace_paths.root)
+    prep_jobs = DatasetPrepJobManager()
     comfy = comfy_client or ComfyClient()
 
     app = FastAPI(title="Local Model Studio API")
@@ -217,6 +220,27 @@ def create_app(
             return prepare_dataset_crops(request, anthropic_api_key=api_keys.api_key() if request.use_ai else None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/dataset-prep/jobs", response_model=DatasetPrepJobStatus)
+    def start_dataset_prep_job(request: DatasetPrepRequest) -> DatasetPrepJobStatus:
+        try:
+            return prep_jobs.start(request, anthropic_api_key=api_keys.api_key() if request.use_ai else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/dataset-prep/jobs/{job_id}", response_model=DatasetPrepJobStatus)
+    def get_dataset_prep_job(job_id: str) -> DatasetPrepJobStatus:
+        try:
+            return prep_jobs.get(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/dataset-prep/jobs/{job_id}/cancel", response_model=DatasetPrepJobStatus)
+    def cancel_dataset_prep_job(job_id: str) -> DatasetPrepJobStatus:
+        try:
+            return prep_jobs.cancel(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/api/training/config", response_model=TrainingJobConfig)
     def create_training_config(payload: TrainingConfigPayload) -> TrainingJobConfig:

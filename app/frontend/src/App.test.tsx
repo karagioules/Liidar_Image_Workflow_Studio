@@ -258,29 +258,67 @@ describe("App", () => {
           });
         }
 
-        if (url.endsWith("/api/dataset-prep/crop")) {
+        if (url.endsWith("/api/dataset-prep/jobs") && method === "POST") {
           return jsonResponse({
-            output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+            job_id: "prep-job-1",
+            status: "running",
+            total_count: 10,
+            processed_count: 0,
+            cropped_count: 0,
+            skipped_count: 0,
+            ai_guided_count: 0,
+            face_guided_count: 0,
+            fallback_count: 0,
+            active_file: "H:\\raw\\one.jpg",
+            output_folder: null,
+            use_ai: true,
+            ai_max_images: 25,
+            cancel_requested: false,
+            error: null,
+            result: null
+          });
+        }
+
+        if (url.endsWith("/api/dataset-prep/jobs/prep-job-1") && method === "GET") {
+          return jsonResponse({
+            job_id: "prep-job-1",
+            status: "completed",
+            total_count: 10,
             processed_count: 10,
             cropped_count: 8,
             skipped_count: 2,
             ai_guided_count: 3,
             face_guided_count: 4,
             fallback_count: 1,
-            warnings: ["1 crop used center fallback because a face/body anchor was not detected; review those outputs manually."],
-            images: [
-              {
-                source_path: "H:\\raw\\one.jpg",
-                output_path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1\\one_chest_detail_0001.jpg",
-                width: 800,
-                height: 1200,
-                face_count: 1,
-                accepted: true,
-                reason: "chest detail crop from Claude AI scan",
-                method: "ai_guided",
-                crop_box: [10, 120, 700, 760]
-              }
-            ]
+            active_file: null,
+            output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+            use_ai: true,
+            ai_max_images: 25,
+            cancel_requested: false,
+            error: null,
+            result: {
+              output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+              processed_count: 10,
+              cropped_count: 8,
+              skipped_count: 2,
+              ai_guided_count: 3,
+              face_guided_count: 4,
+              fallback_count: 1,
+              warnings: ["1 crop used center fallback because a face/body anchor was not detected; review those outputs manually."],
+              images: [
+                {
+                  source_path: "H:\\raw\\one.jpg",
+                  output_path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1\\one_chest_detail_0001.jpg",
+                  width: 800,
+                  height: 1200,
+                  face_count: 1,
+                  accepted: true,
+                  reason: "chest detail crop from Claude AI scan",
+                  method: "ai_guided",
+                  crop_box: [10, 120, 700, 760]
+                }
+              ]
+            }
           });
         }
 
@@ -550,6 +588,8 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
     await user.click(screen.getByRole("button", { name: /create crop folder/i }));
 
+    expect(await screen.findByRole("progressbar", { name: /dataset prep progress/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
     expect(await screen.findByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).toBeInTheDocument();
     expect(screen.getByText("AI-guided")).toBeInTheDocument();
     expect(screen.getByText("chest detail crop from Claude AI scan")).toBeInTheDocument();
