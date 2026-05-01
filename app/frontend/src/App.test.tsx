@@ -334,6 +334,8 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /create draft from references/i }));
 
     expect(screen.getByDisplayValue("Marianna")).toBeInTheDocument();
+    expect(screen.getByText("Quick draft filled")).toBeInTheDocument();
+    expect(screen.getByText(/does not inspect image pixels/i)).toBeInTheDocument();
     await user.click(screen.getByText("Advanced profile controls"));
     expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("fictional adult face");
     expect((screen.getByLabelText("Style notes") as HTMLTextAreaElement).value).toContain("reference-guided");

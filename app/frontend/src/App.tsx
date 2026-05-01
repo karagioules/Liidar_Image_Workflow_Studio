@@ -561,13 +561,16 @@ function CharactersPanel(props: {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onNew, onChange, onSave } = props;
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [draftMessage, setDraftMessage] = useState("");
   const [analysisByCharacterId, setAnalysisByCharacterId] = useState<Record<string, ReferenceAnalysisResponse>>({});
   const currentAnalysis = analysisByCharacterId[editingCharacter.id] ?? null;
   useEffect(() => {
     setAnalysisError("");
+    setDraftMessage("");
   }, [editingCharacter.id]);
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
   const updateReferences = (paths: string[]) => {
+    setDraftMessage("");
     setAnalysisByCharacterId((current) => {
       const next = { ...current };
       delete next[editingCharacter.id];
@@ -579,7 +582,11 @@ function CharactersPanel(props: {
     if (!editingCharacter.reference_images.length) {
       return;
     }
-    onChange(draftProfileFromReferences(editingCharacter));
+    const draft = draftProfileFromReferences(editingCharacter);
+    onChange(draft);
+    setDraftMessage(
+      `Quick draft filled ${draft.reference_images.length} reference-based profile fields. Open Advanced profile controls to review or edit them.`
+    );
   };
   const analyzeReferences = async () => {
     if (!editingCharacter.reference_images.length) {
@@ -588,6 +595,7 @@ function CharactersPanel(props: {
     try {
       setIsAnalyzing(true);
       setAnalysisError("");
+      setDraftMessage("");
       const analyzed = await api.analyzeReferences(editingCharacter);
       setAnalysisByCharacterId((current) => ({ ...current, [editingCharacter.id]: analyzed }));
       onChange({ ...editingCharacter, ...analyzed, reference_images: analyzed.reference_images ?? editingCharacter.reference_images });
@@ -643,6 +651,19 @@ function CharactersPanel(props: {
             Create draft from references
           </button>
         </div>
+        {draftMessage ? (
+          <section className="draft-result" aria-live="polite">
+            <div>
+              <CheckCircle2 aria-hidden="true" />
+              <strong>Quick draft filled</strong>
+            </div>
+            <p>{draftMessage}</p>
+            <p>It does not inspect image pixels. Run Analyze references for real local vision analysis.</p>
+            <div className="draft-field-list">
+              {["Face", "Hair", "Eyes", "Skin", "Body", "Chest", "Grooming", "Style"].map((item) => <span key={item}>{item}</span>)}
+            </div>
+          </section>
+        ) : null}
         <details className="advanced-fields">
           <summary>Advanced profile controls</summary>
           <div className="form-grid inner-grid">
