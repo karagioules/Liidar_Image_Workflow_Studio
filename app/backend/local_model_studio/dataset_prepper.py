@@ -18,6 +18,7 @@ from local_model_studio.schemas import DatasetPrepImage, DatasetPrepRequest, Dat
 
 CropBox = tuple[int, int, int, int]
 FaceBox = tuple[int, int, int, int]
+NormalizedBox = tuple[float, float, float, float]
 ProgressCallback = Callable[[dict[str, object]], None]
 
 
@@ -80,7 +81,8 @@ def prepare_dataset_crops(
                 faces: list[FaceBox] = []
                 crop_box: CropBox | None = None
                 method = "skipped"
-                if request.use_ai and index <= request.ai_max_images:
+                ai_attempted = request.use_ai and index <= request.ai_max_images
+                if ai_attempted:
                     if not anthropic_api_key:
                         raise ValueError("Claude API key is required when AI scanning is enabled.")
                     ai_crop_box, ai_warning = _claude_crop_box(
@@ -95,6 +97,21 @@ def prepare_dataset_crops(
                         crop_box = ai_crop_box
                         method = "ai_guided"
                 if crop_box is None:
+                    if ai_attempted:
+                        images.append(
+                            DatasetPrepImage(
+                                source_path=str(image_path),
+                                width=image.width,
+                                height=image.height,
+                                face_count=0,
+                                accepted=False,
+                                reason="Claude AI did not return a usable tight target crop",
+                                method="skipped",
+                                crop_box=None,
+                                output_path=None,
+                            )
+                        )
+                        continue
                     faces, face_warning = _detect_faces(image_path)
                     if face_warning and face_warning not in warnings:
                         warnings.append(face_warning)
@@ -224,13 +241,16 @@ def _claude_crop_box(
     model: str,
 ) -> tuple[CropBox | None, str | None]:
     encoded = _encode_image_for_ai(image)
+    target_label = _target_instruction(target)
     prompt = (
-        "Return compact JSON only. This is adult-only dataset preparation. "
-        "Find the best crop for the requested target without including the face when possible. "
+        "Return compact JSON only for adult-only dataset preparation. "
         "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
-        "If the target is not visible, set visible_target false. "
-        f"Target: {target.replace('_', ' ')}. "
-        'Schema: {"visible_target":true,"crop_box":[0.1,0.2,0.8,0.7],"confidence":0.0}'
+        "Do not make a portrait crop. Do not preserve the full person. "
+        "The crop must tightly frame the requested anatomy/region and exclude the face whenever possible. "
+        "Report both target_box and face_box. Set face_box to null if no face is visible. "
+        "If the requested target is not visible, set visible_target false. "
+        f"Target: {target_label}. "
+        'Schema: {"visible_target":true,"target_box":[0.2,0.35,0.8,0.62],"face_box":[0.35,0.05,0.65,0.28],"crop_box":[0.16,0.31,0.84,0.67],"confidence":0.0}'
     )
     try:
         response = httpx.post(
@@ -242,7 +262,7 @@ def _claude_crop_box(
             },
             json={
                 "model": model,
-                "max_tokens": 160,
+                "max_tokens": 220,
                 "temperature": 0,
                 "messages": [
                     {
@@ -269,12 +289,20 @@ def _claude_crop_box(
         parsed = _parse_ai_json(text)
         if not parsed.get("visible_target"):
             return None, "Claude did not find the requested target in at least one image; local crop fallback was used."
-        box = parsed.get("crop_box")
-        if not isinstance(box, list) or len(box) != 4:
+        crop_box = _crop_box_from_ai_response(parsed, image.width, image.height, target)
+        if crop_box is None:
             return None, "Claude returned an unusable crop box for at least one image; local crop fallback was used."
-        return _normalized_box_to_pixels(box, image.width, image.height), None
+        return crop_box, None
     except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         return None, f"Claude AI crop failed for at least one image; local crop fallback was used. {exc}"
+
+
+def _target_instruction(target: str) -> str:
+    if target == "chest_detail":
+        return "tight chest/breast region only; no face, no full head, no full body"
+    if target == "upper_torso":
+        return "upper torso region; shoulders/chest/waist context, avoid full face"
+    return "full body context"
 
 
 def _encode_image_for_ai(image: Image.Image) -> str:
@@ -295,8 +323,78 @@ def _parse_ai_json(text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def _normalized_box_to_pixels(box: list[object], width: int, height: int) -> CropBox:
-    left, top, right, bottom = [float(value) for value in box]
+def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: str) -> CropBox | None:
+    target_box = _normalized_box(parsed.get("target_box")) or _normalized_box(parsed.get("crop_box"))
+    crop_box = _normalized_box(parsed.get("crop_box")) or target_box
+    if target_box is None or crop_box is None:
+        return None
+
+    if target == "chest_detail":
+        crop_box = _tight_chest_crop(target_box, _normalized_box(parsed.get("face_box")))
+    elif target == "upper_torso":
+        crop_box = _avoid_face_overlap(crop_box, _normalized_box(parsed.get("face_box")))
+
+    return _normalized_box_to_pixels(crop_box, width, height)
+
+
+def _normalized_box(value: object) -> NormalizedBox | None:
+    if not isinstance(value, list) or len(value) != 4:
+        return None
+    try:
+        left, top, right, bottom = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+    if right <= left or bottom <= top:
+        return None
+    return (
+        max(0.0, min(left, 1.0)),
+        max(0.0, min(top, 1.0)),
+        max(0.0, min(right, 1.0)),
+        max(0.0, min(bottom, 1.0)),
+    )
+
+
+def _tight_chest_crop(target_box: NormalizedBox, face_box: NormalizedBox | None) -> NormalizedBox:
+    left, top, right, bottom = target_box
+    width = right - left
+    height = bottom - top
+    pad_x = max(width * 0.12, 0.025)
+    pad_y = max(height * 0.12, 0.018)
+    crop = (left - pad_x, top - pad_y, right + pad_x, bottom + pad_y)
+    crop = _avoid_face_overlap(crop, face_box)
+
+    left, top, right, bottom = crop
+    if bottom - top > 0.46:
+        center_y = (top + bottom) / 2
+        half_height = 0.23
+        top = center_y - half_height
+        bottom = center_y + half_height
+    return _clamp_normalized_box((left, top, right, bottom))
+
+
+def _avoid_face_overlap(crop_box: NormalizedBox, face_box: NormalizedBox | None) -> NormalizedBox:
+    if face_box is None:
+        return _clamp_normalized_box(crop_box)
+    left, top, right, bottom = crop_box
+    face_left, face_top, face_right, face_bottom = face_box
+    horizontal_overlap = min(right, face_right) - max(left, face_left)
+    vertical_overlap = min(bottom, face_bottom) - max(top, face_top)
+    if horizontal_overlap > 0 and vertical_overlap > 0:
+        top = max(top, face_bottom + 0.015)
+    return _clamp_normalized_box((left, top, right, bottom))
+
+
+def _clamp_normalized_box(box: NormalizedBox) -> NormalizedBox:
+    left, top, right, bottom = box
+    left = max(0.0, min(left, 0.99))
+    top = max(0.0, min(top, 0.99))
+    right = max(left + 0.01, min(right, 1.0))
+    bottom = max(top + 0.01, min(bottom, 1.0))
+    return left, top, right, bottom
+
+
+def _normalized_box_to_pixels(box: NormalizedBox, width: int, height: int) -> CropBox:
+    left, top, right, bottom = box
     return _clamp_box((int(left * width), int(top * height), int(right * width), int(bottom * height)), width, height)
 
 

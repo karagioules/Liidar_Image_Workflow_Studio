@@ -206,7 +206,7 @@ class DatasetPrepRequest(BaseModel):
     target: DatasetPrepTarget = "chest_detail"
     recursive: bool = True
     use_ai: bool = False
-    ai_max_images: int = Field(default=25, ge=0, le=500)
+    ai_max_images: int = Field(default=500, ge=0, le=500)
     ai_model: str = Field(default="claude-3-haiku-20240307", max_length=120)
 
 

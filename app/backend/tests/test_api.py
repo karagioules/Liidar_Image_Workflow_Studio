@@ -6,13 +6,14 @@ from pathlib import Path
 
 import local_model_studio.main as main_module
 import local_model_studio.runtime_check as runtime_check
+from local_model_studio import dataset_prepper
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from local_model_studio.local_image_tagger import _preferred_providers
 from local_model_studio.main import create_app
 from local_model_studio.paths import WorkspacePaths
-from local_model_studio.schemas import DatasetPrepResponse
+from local_model_studio.schemas import DatasetPrepRequest, DatasetPrepResponse
 
 
 class FakeComfyClient:
@@ -278,6 +279,49 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
     assert body["images"][0]["accepted"] is True
     assert body["images"][0]["output_path"].endswith(".jpg")
     assert Path(body["images"][0]["output_path"]).is_file()
+
+
+def test_dataset_prep_ai_chest_crop_prefers_target_box_and_excludes_face() -> None:
+    crop = dataset_prepper._crop_box_from_ai_response(
+        {
+            "visible_target": True,
+            "crop_box": [0.1, 0.05, 0.9, 0.72],
+            "target_box": [0.24, 0.34, 0.78, 0.58],
+            "face_box": [0.34, 0.04, 0.66, 0.31],
+        },
+        1000,
+        1200,
+        "chest_detail",
+    )
+
+    assert crop is not None
+    left, top, right, bottom = crop
+    assert left < 240
+    assert right > 780
+    assert top >= 372
+    assert bottom <= 740
+
+
+def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    output = tmp_path / "prepared"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(
+        dataset_prepper,
+        "_claude_crop_box",
+        lambda image, target, anthropic_api_key, model: (None, "Claude returned broad portrait crop."),
+    )
+
+    report = dataset_prepper.prepare_dataset_crops(
+        DatasetPrepRequest(source_folder=source, output_folder=output, target="chest_detail", use_ai=True),
+        anthropic_api_key="sk-ant-test",
+    )
+
+    assert report.cropped_count == 0
+    assert report.skipped_count == 1
+    assert report.fallback_count == 0
+    assert report.images[0].method == "skipped"
 
 
 def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatch) -> None:

@@ -175,7 +175,7 @@ function App() {
   const [prepTarget, setPrepTarget] = useState<DatasetPrepTarget>("chest_detail");
   const [prepRecursive, setPrepRecursive] = useState(true);
   const [prepUseAi, setPrepUseAi] = useState(false);
-  const [prepAiMaxImages, setPrepAiMaxImages] = useState(25);
+  const [prepAiMaxImages, setPrepAiMaxImages] = useState(500);
   const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [anthropicModel, setAnthropicModel] = useState("claude-3-haiku-20240307");
