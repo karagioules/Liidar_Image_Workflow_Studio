@@ -54,6 +54,22 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/system/live")) {
+          return jsonResponse({
+            timestamp: "2026-05-01T00:00:00Z",
+            cpu_percent: 21.5,
+            ram_used_gb: 15.2,
+            ram_total_gb: 31.9,
+            ram_percent: 47.6,
+            gpu_percent: 63.2,
+            gpu_memory_used_gb: 7.25,
+            gpu_memory_total_gb: null,
+            gpu_provider: "Windows performance counters",
+            process_memory_mb: 312.4,
+            warnings: []
+          });
+        }
+
         if (url.endsWith("/api/characters") && method === "GET") {
           return jsonResponse([character]);
         }
@@ -259,6 +275,17 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Characters" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Training" })).toBeInTheDocument();
+  });
+
+  it("shows live system usage in the sidebar", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("region", { name: "Live system monitor" })).toBeInTheDocument();
+    expect(screen.getAllByText("CPU").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("RAM").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("GPU").length).toBeGreaterThan(0);
+    expect(screen.getByText("15.2 / 31.9 GB")).toBeInTheDocument();
+    expect(screen.getByText("7.25 GB dedicated")).toBeInTheDocument();
   });
 
   it("shows character editor fields from the backend profile", async () => {

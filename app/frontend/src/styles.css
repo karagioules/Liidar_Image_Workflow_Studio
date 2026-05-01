@@ -111,6 +111,98 @@ button svg {
   flex: 0 0 auto;
 }
 
+.sidebar-monitor {
+  display: grid;
+  gap: 11px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.monitor-heading,
+.monitor-row > div:first-child,
+.monitor-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.monitor-heading span {
+  color: #92a4b8;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.monitor-heading strong {
+  padding: 3px 7px;
+  border: 1px solid #225c4b;
+  border-radius: 999px;
+  background: #0e2a22;
+  color: #83e6b0;
+  font-size: 0.72rem;
+}
+
+.monitor-row {
+  display: grid;
+  gap: 6px;
+}
+
+.monitor-row span,
+.monitor-meta,
+.monitor-warning {
+  color: #92a4b8;
+  font-size: 0.78rem;
+}
+
+.monitor-row strong {
+  color: #f4f8fc;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.monitor-row.muted strong {
+  color: #8194a9;
+}
+
+.monitor-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #0b121a;
+  border: 1px solid #24374a;
+}
+
+.monitor-track span {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #83e6b0);
+  transition: width 220ms ease;
+}
+
+.monitor-row.muted .monitor-track span {
+  background: #31445a;
+}
+
+.monitor-meta {
+  display: grid;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.monitor-meta span {
+  overflow-wrap: anywhere;
+}
+
+.monitor-warning {
+  margin: 0;
+  color: #f3c56b;
+  line-height: 1.35;
+}
+
 .workspace {
   min-width: 0;
   padding: 26px;

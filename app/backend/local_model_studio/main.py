@@ -17,7 +17,7 @@ from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
 from local_model_studio.prompt_builder import build_prompt_recipe
 from local_model_studio.reference_analyzer import analyze_references
-from local_model_studio.runtime_check import build_runtime_status
+from local_model_studio.runtime_check import build_live_system_metrics, build_runtime_status
 from local_model_studio.schemas import (
     CharacterProfile,
     GenerationJobResponse,
@@ -28,6 +28,7 @@ from local_model_studio.schemas import (
     ReferenceAnalysisResponse,
     RuntimeStatus,
     SelectedReferenceImagesResponse,
+    SystemLiveMetrics,
 )
 from local_model_studio.training_config import build_training_config, check_trainer_status
 from local_model_studio.training_schemas import (
@@ -79,6 +80,10 @@ def create_app(
     @app.get("/api/runtime", response_model=RuntimeStatus)
     def runtime_status() -> RuntimeStatus:
         return build_runtime_status(workspace_paths)
+
+    @app.get("/api/system/live", response_model=SystemLiveMetrics)
+    def live_system_metrics() -> SystemLiveMetrics:
+        return build_live_system_metrics()
 
     @app.get("/api/filesystem/browse", response_model=PathBrowserResponse)
     def browse_local_filesystem(path: str | None = None) -> PathBrowserResponse:

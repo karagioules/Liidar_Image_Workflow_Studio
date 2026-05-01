@@ -17,6 +17,7 @@ import type {
   ReferenceAnalysisResponse,
   RuntimeStatus,
   SourceRights,
+  SystemLiveMetrics,
   TrainerStatus,
   TrainingJobConfig,
   VisionTag
@@ -124,6 +125,7 @@ function labelize(value: string) {
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("runtime");
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [liveMetrics, setLiveMetrics] = useState<SystemLiveMetrics | null>(null);
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [editingCharacter, setEditingCharacter] = useState<CharacterProfile>(blankCharacter);
@@ -154,6 +156,30 @@ function App() {
 
   useEffect(() => {
     void loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLiveMetrics = async () => {
+      try {
+        const metrics = await api.systemLive();
+        if (!cancelled) {
+          setLiveMetrics(metrics);
+        }
+      } catch {
+        if (!cancelled) {
+          setLiveMetrics(null);
+        }
+      }
+    };
+
+    void loadLiveMetrics();
+    const intervalId = window.setInterval(() => void loadLiveMetrics(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -314,6 +340,7 @@ function App() {
             );
           })}
         </nav>
+        <SystemMonitor metrics={liveMetrics} />
       </aside>
 
       <main className="workspace">
@@ -426,6 +453,46 @@ function RuntimePanel({ runtime }: { runtime: RuntimeStatus | null }) {
       </div>
       {runtime?.warnings.length ? <WarningList warnings={runtime.warnings} /> : null}
     </section>
+  );
+}
+
+function SystemMonitor({ metrics }: { metrics: SystemLiveMetrics | null }) {
+  const gpuText = metrics?.gpu_percent == null ? "No counter" : `${Math.round(metrics.gpu_percent)}%`;
+  const vramText = metrics?.gpu_memory_used_gb == null ? "Dedicated VRAM unavailable" : `${metrics.gpu_memory_used_gb.toFixed(2)} GB dedicated`;
+  return (
+    <section className="sidebar-monitor" aria-label="Live system monitor">
+      <div className="monitor-heading">
+        <span>Live system</span>
+        <strong>{metrics ? "Online" : "Loading"}</strong>
+      </div>
+      <MonitorBar label="CPU" value={metrics?.cpu_percent ?? 0} text={metrics ? `${Math.round(metrics.cpu_percent)}%` : "Loading"} />
+      <MonitorBar
+        label="RAM"
+        value={metrics?.ram_percent ?? 0}
+        text={metrics ? `${metrics.ram_used_gb.toFixed(1)} / ${metrics.ram_total_gb.toFixed(1)} GB` : "Loading"}
+      />
+      <MonitorBar label="GPU" value={metrics?.gpu_percent ?? 0} text={gpuText} muted={metrics?.gpu_percent == null} />
+      <div className="monitor-meta">
+        <span>{vramText}</span>
+        <span>Backend {metrics ? `${Math.round(metrics.process_memory_mb)} MB` : "..."}</span>
+      </div>
+      {metrics?.warnings[0] ? <p className="monitor-warning">{metrics.warnings[0]}</p> : null}
+    </section>
+  );
+}
+
+function MonitorBar({ label, value, text, muted = false }: { label: string; value: number; text: string; muted?: boolean }) {
+  const safeValue = Math.min(Math.max(value, 0), 100);
+  return (
+    <div className={muted ? "monitor-row muted" : "monitor-row"}>
+      <div>
+        <span>{label}</span>
+        <strong>{text}</strong>
+      </div>
+      <div className="monitor-track" aria-hidden="true">
+        <span style={{ width: `${safeValue}%` }} />
+      </div>
+    </div>
   );
 }
 

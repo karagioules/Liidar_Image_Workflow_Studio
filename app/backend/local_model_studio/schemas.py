@@ -159,6 +159,20 @@ class RuntimeStatus(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class SystemLiveMetrics(BaseModel):
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    cpu_percent: float
+    ram_used_gb: float
+    ram_total_gb: float
+    ram_percent: float
+    gpu_percent: float | None = None
+    gpu_memory_used_gb: float | None = None
+    gpu_memory_total_gb: float | None = None
+    gpu_provider: str | None = None
+    process_memory_mb: float
+    warnings: list[str] = Field(default_factory=list)
+
+
 PathEntryKind = Literal["directory", "file", "drive"]
 
 

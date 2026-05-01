@@ -9,6 +9,7 @@ import type {
   ReferenceAnalysisResponse,
   RuntimeStatus,
   SelectedReferenceImagesResponse,
+  SystemLiveMetrics,
   TrainerStatus,
   TrainingConfigRequest,
   TrainingJobConfig
@@ -48,6 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   runtime: () => request<RuntimeStatus>("/api/runtime"),
+  systemLive: () => request<SystemLiveMetrics>("/api/system/live"),
   browseFilesystem: (path: string) => {
     const params = new URLSearchParams();
     if (path.trim()) {

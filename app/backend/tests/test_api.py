@@ -72,6 +72,21 @@ def test_profile_crud(tmp_path: Path) -> None:
     assert missing.status_code == 404
 
 
+def test_live_system_metrics_route_returns_usage(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get("/api/system/live")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cpu_percent"] >= 0
+    assert body["ram_total_gb"] > 0
+    assert body["ram_used_gb"] >= 0
+    assert body["ram_percent"] >= 0
+    assert body["process_memory_mb"] > 0
+    assert "timestamp" in body
+
+
 def test_generate_preview_returns_recipe_containing_scene_prompt(tmp_path: Path) -> None:
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
     client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})

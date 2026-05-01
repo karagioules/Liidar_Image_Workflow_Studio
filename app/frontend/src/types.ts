@@ -113,6 +113,20 @@ export interface RuntimeStatus {
   warnings: string[];
 }
 
+export interface SystemLiveMetrics {
+  timestamp: string;
+  cpu_percent: number;
+  ram_used_gb: number;
+  ram_total_gb: number;
+  ram_percent: number;
+  gpu_percent: number | null;
+  gpu_memory_used_gb: number | null;
+  gpu_memory_total_gb: number | null;
+  gpu_provider: string | null;
+  process_memory_mb: number;
+  warnings: string[];
+}
+
 export interface PathBrowserEntry {
   name: string;
   path: string;
