@@ -94,6 +94,16 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/settings/anthropic-key/test") && method === "POST") {
+          return jsonResponse({
+            provider: "anthropic",
+            ok: false,
+            status_code: 404,
+            model: "claude-3-haiku-20240307",
+            message: "404 Not Found - not_found_error: model not found"
+          });
+        }
+
         if (url.endsWith("/api/characters") && method === "GET") {
           return jsonResponse([character]);
         }
@@ -588,6 +598,8 @@ describe("App", () => {
     await user.type(screen.getByLabelText("API key"), "sk-ant-test");
     await user.click(screen.getByRole("button", { name: /save key/i }));
     expect(await screen.findByText(/Claude key saved/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /test key/i }));
+    expect((await screen.findAllByText(/model not found/i)).length).toBeGreaterThan(0);
 
     await user.click(screen.getByLabelText("Use AI scan"));
     await user.clear(screen.getByLabelText("Source folder"));

@@ -5,6 +5,7 @@ import { api } from "./api";
 import type {
   AdultAgeCategory,
   AdultContentSignals,
+  ApiKeyTestResponse,
   AttributeDetail,
   CharacterProfile,
   DatasetPrepJobStatus,
@@ -179,6 +180,7 @@ function App() {
   const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [anthropicModel, setAnthropicModel] = useState("claude-3-haiku-20240307");
+  const [anthropicKeyTest, setAnthropicKeyTest] = useState<ApiKeyTestResponse | null>(null);
   const [prepReport, setPrepReport] = useState<DatasetPrepResponse | null>(null);
   const [prepJob, setPrepJob] = useState<DatasetPrepJobStatus | null>(null);
   const [isPreparingDataset, setIsPreparingDataset] = useState(false);
@@ -435,6 +437,17 @@ function App() {
     }
   }
 
+  async function testAnthropicKey() {
+    try {
+      setError("");
+      const result = await api.testAnthropicKey();
+      setAnthropicKeyTest(result);
+      setMessage(result.message);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to test Claude API key.");
+    }
+  }
+
   async function createTrainingConfig() {
     try {
       setError("");
@@ -598,6 +611,7 @@ function App() {
             anthropicKeySaved={anthropicKeySaved}
             anthropicKeyInput={anthropicKeyInput}
             anthropicModel={anthropicModel}
+            anthropicKeyTest={anthropicKeyTest}
             report={prepReport}
             job={prepJob}
             isPreparing={isPreparingDataset}
@@ -610,6 +624,7 @@ function App() {
             onAnthropicKeyInputChange={setAnthropicKeyInput}
             onSaveAnthropicKey={() => void saveAnthropicKey()}
             onRemoveAnthropicKey={() => void removeAnthropicKey()}
+            onTestAnthropicKey={() => void testAnthropicKey()}
             onSelectSource={() => void selectPrepFolder("source")}
             onSelectOutput={() => void selectPrepFolder("output")}
             onRun={() => void runDatasetPrep()}
@@ -873,6 +888,7 @@ function DatasetPrepPanel(props: {
   anthropicKeySaved: boolean;
   anthropicKeyInput: string;
   anthropicModel: string;
+  anthropicKeyTest: ApiKeyTestResponse | null;
   report: DatasetPrepResponse | null;
   job: DatasetPrepJobStatus | null;
   isPreparing: boolean;
@@ -885,6 +901,7 @@ function DatasetPrepPanel(props: {
   onAnthropicKeyInputChange: (value: string) => void;
   onSaveAnthropicKey: () => void;
   onRemoveAnthropicKey: () => void;
+  onTestAnthropicKey: () => void;
   onSelectSource: () => void;
   onSelectOutput: () => void;
   onRun: () => void;
@@ -986,6 +1003,10 @@ function DatasetPrepPanel(props: {
               <X aria-hidden="true" />
               Remove key
             </button>
+            <button type="button" className="secondary-button" onClick={props.onTestAnthropicKey} disabled={!props.anthropicKeySaved}>
+              <Search aria-hidden="true" />
+              Test key
+            </button>
             <label className="check-row inline-check">
               <input type="checkbox" checked={props.useAi} onChange={(event) => props.onUseAiChange(event.target.checked)} disabled={!props.anthropicKeySaved} />
               Use AI scan
@@ -995,6 +1016,12 @@ function DatasetPrepPanel(props: {
             {props.anthropicKeySaved ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
             <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
           </div>
+          {props.anthropicKeyTest ? (
+            <div className={props.anthropicKeyTest.ok ? "inline-status ok" : "inline-status warning"}>
+              {props.anthropicKeyTest.ok ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+              <span>{props.anthropicKeyTest.message}</span>
+            </div>
+          ) : null}
         </section>
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>

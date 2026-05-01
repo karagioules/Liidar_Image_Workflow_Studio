@@ -4,10 +4,11 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 import local_model_studio.main as main_module
 import local_model_studio.runtime_check as runtime_check
-from local_model_studio import dataset_prepper
 from fastapi.testclient import TestClient
+from local_model_studio import dataset_prepper
 from PIL import Image
 
 from local_model_studio.local_image_tagger import _preferred_providers
@@ -105,6 +106,27 @@ def test_anthropic_key_routes_save_status_and_delete(tmp_path: Path) -> None:
     assert saved.json()["model"] == "claude-3-haiku-20240307"
     assert removed.status_code == 200
     assert removed.json()["saved"] is False
+
+
+def test_anthropic_key_test_route_surfaces_provider_error(tmp_path: Path, monkeypatch) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    client.post("/api/settings/anthropic-key", json={"api_key": "sk-ant-test"})
+    monkeypatch.setattr(
+        main_module.httpx,
+        "post",
+        lambda *args, **kwargs: httpx.Response(
+            404,
+            json={"error": {"type": "not_found_error", "message": "model not found"}},
+        ),
+    )
+
+    response = client.post("/api/settings/anthropic-key/test")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["status_code"] == 404
+    assert body["message"] == "404 Not Found - not_found_error: model not found"
 
 
 def test_gpu_counter_probe_treats_idle_gpu_as_zero(monkeypatch) -> None:
@@ -302,6 +324,28 @@ def test_dataset_prep_ai_chest_crop_prefers_target_box_and_excludes_face() -> No
     assert bottom <= 740
 
 
+def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> None:
+    crop = dataset_prepper._crop_box_from_ai_response(
+        {
+            "visible_target": True,
+            "crop_box": [0.04, 0.02, 0.95, 0.75],
+            "target_box": [0.12, 0.12, 0.82, 0.65],
+            "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
+            "face_box": [0.3, 0.04, 0.68, 0.32],
+        },
+        1000,
+        1200,
+        "chest_detail",
+    )
+
+    assert crop is not None
+    left, top, right, bottom = crop
+    assert 130 <= left <= 230
+    assert 730 <= right <= 830
+    assert top >= 320
+    assert bottom <= 760
+
+
 def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "raw"
     output = tmp_path / "prepared"
@@ -324,6 +368,15 @@ def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path
     assert report.ai_failed_count == 1
     assert report.fallback_count == 0
     assert report.images[0].method == "ai_failed"
+
+
+def test_dataset_prep_formats_anthropic_error_body() -> None:
+    response = httpx.Response(
+        404,
+        json={"error": {"type": "not_found_error", "message": "model not found"}},
+    )
+
+    assert dataset_prepper._anthropic_error_message(response) == "404 Not Found - not_found_error: model not found"
 
 
 def test_dataset_prep_job_reports_progress_and_result(tmp_path: Path, monkeypatch) -> None:

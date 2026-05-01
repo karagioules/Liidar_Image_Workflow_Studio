@@ -265,6 +265,14 @@ class ApiKeyStatus(BaseModel):
     model: str
 
 
+class ApiKeyTestResponse(BaseModel):
+    provider: str
+    ok: bool
+    status_code: int | None = None
+    model: str
+    message: str
+
+
 class ApiKeyPayload(BaseModel):
     api_key: str = Field(min_length=1, max_length=400)
     model: str = Field(default="claude-3-haiku-20240307", max_length=120)

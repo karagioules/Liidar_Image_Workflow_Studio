@@ -12,7 +12,7 @@ from local_model_studio.api_key_store import ApiKeyStore
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
 from local_model_studio.dataset_prep_jobs import DatasetPrepJobManager
-from local_model_studio.dataset_prepper import prepare_dataset_crops
+from local_model_studio.dataset_prepper import _anthropic_error_message, prepare_dataset_crops
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
 from local_model_studio.local_image_tagger import local_tagger_from_workspace
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
@@ -25,6 +25,7 @@ from local_model_studio.schemas import (
     CharacterProfile,
     ApiKeyPayload,
     ApiKeyStatus,
+    ApiKeyTestResponse,
     DatasetPrepJobStatus,
     DatasetPrepRequest,
     DatasetPrepResponse,
@@ -107,6 +108,39 @@ def create_app(
     @app.delete("/api/settings/anthropic-key", response_model=ApiKeyStatus)
     def delete_anthropic_key() -> ApiKeyStatus:
         return api_keys.delete()
+
+    @app.post("/api/settings/anthropic-key/test", response_model=ApiKeyTestResponse)
+    def test_anthropic_key() -> ApiKeyTestResponse:
+        key = api_keys.api_key()
+        model = api_keys.model()
+        if not key:
+            return ApiKeyTestResponse(provider="anthropic", ok=False, model=model, message="No Claude API key saved.")
+        try:
+            response = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "Reply OK"}],
+                },
+                timeout=20,
+            )
+        except httpx.HTTPError as exc:
+            return ApiKeyTestResponse(provider="anthropic", ok=False, model=model, message=f"Connection failed: {exc}")
+        if response.status_code >= 400:
+            return ApiKeyTestResponse(
+                provider="anthropic",
+                ok=False,
+                status_code=response.status_code,
+                model=model,
+                message=_anthropic_error_message(response),
+            )
+        return ApiKeyTestResponse(provider="anthropic", ok=True, status_code=response.status_code, model=model, message="Claude API connection works.")
 
     @app.get("/api/filesystem/browse", response_model=PathBrowserResponse)
     def browse_local_filesystem(path: str | None = None) -> PathBrowserResponse:

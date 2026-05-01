@@ -1,5 +1,6 @@
 import type {
   ApiKeyStatus,
+  ApiKeyTestResponse,
   CharacterProfile,
   DatasetPrepJobStatus,
   DatasetPrepRequest,
@@ -64,6 +65,10 @@ export const api = {
   deleteAnthropicKey: () =>
     request<ApiKeyStatus>("/api/settings/anthropic-key", {
       method: "DELETE"
+    }),
+  testAnthropicKey: () =>
+    request<ApiKeyTestResponse>("/api/settings/anthropic-key/test", {
+      method: "POST"
     }),
   browseFilesystem: (path: string) => {
     const params = new URLSearchParams();

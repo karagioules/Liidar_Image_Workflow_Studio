@@ -260,11 +260,12 @@ def _claude_crop_box(
         "Return compact JSON only for adult-only dataset preparation. "
         "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
         "Do not make a portrait crop. Do not preserve the full person. "
-        "The crop must tightly frame the requested anatomy/region and exclude the face whenever possible. "
-        "Report both target_box and face_box. Set face_box to null if no face is visible. "
+        "For chest_detail, identify the visible breasts first and return breast_boxes around breast tissue/covered breast mounds only. "
+        "The crop must tightly frame the requested anatomy/region and exclude the face, head, eyes, mouth, and unrelated torso whenever possible. "
+        "Report breast_boxes, target_box, and face_box. Set face_box to null if no face is visible. "
         "If the requested target is not visible, set visible_target false. "
         f"Target: {target_label}. "
-        'Schema: {"visible_target":true,"target_box":[0.2,0.35,0.8,0.62],"face_box":[0.35,0.05,0.65,0.28],"crop_box":[0.16,0.31,0.84,0.67],"confidence":0.0}'
+        'Schema: {"visible_target":true,"breast_boxes":[[0.25,0.34,0.48,0.58],[0.52,0.34,0.75,0.58]],"target_box":[0.25,0.34,0.75,0.58],"face_box":[0.35,0.05,0.65,0.28],"crop_box":[0.22,0.31,0.78,0.61],"confidence":0.0}'
     )
     try:
         response = httpx.post(
@@ -297,7 +298,8 @@ def _claude_crop_box(
             },
             timeout=45,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            return None, f"Claude AI crop failed: {_anthropic_error_message(response)}"
         data = response.json()
         text = "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
         parsed = _parse_ai_json(text)
@@ -311,9 +313,27 @@ def _claude_crop_box(
         return None, f"Claude AI crop failed for at least one image; local crop fallback was used. {exc}"
 
 
+def _anthropic_error_message(response: httpx.Response) -> str:
+    detail = response.text.strip()
+    try:
+        body = response.json()
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict):
+                message = error.get("message")
+                error_type = error.get("type")
+                if message:
+                    detail = f"{error_type}: {message}" if error_type else str(message)
+            elif body.get("detail"):
+                detail = str(body["detail"])
+    except json.JSONDecodeError:
+        pass
+    return f"{response.status_code} {response.reason_phrase}" + (f" - {detail}" if detail else "")
+
+
 def _target_instruction(target: str) -> str:
     if target == "chest_detail":
-        return "tight chest/breast region only; no face, no full head, no full body"
+        return "tight breast-only crop; include visible breast tissue or covered breast mounds, exclude face/head/mouth/eyes and avoid full torso"
     if target == "upper_torso":
         return "upper torso region; shoulders/chest/waist context, avoid full face"
     return "full body context"
@@ -338,15 +358,21 @@ def _parse_ai_json(text: str) -> dict:
 
 
 def _crop_box_from_ai_response(parsed: dict, width: int, height: int, target: str) -> CropBox | None:
+    face_box = _normalized_box(parsed.get("face_box"))
+    breast_boxes = _normalized_boxes(parsed.get("breast_boxes"))
     target_box = _normalized_box(parsed.get("target_box")) or _normalized_box(parsed.get("crop_box"))
     crop_box = _normalized_box(parsed.get("crop_box")) or target_box
+    if target == "chest_detail" and breast_boxes:
+        crop_box = _breast_region_crop(breast_boxes, face_box)
+        return _normalized_box_to_pixels(crop_box, width, height)
+
     if target_box is None or crop_box is None:
         return None
 
     if target == "chest_detail":
-        crop_box = _tight_chest_crop(target_box, _normalized_box(parsed.get("face_box")))
+        crop_box = _tight_chest_crop(target_box, face_box)
     elif target == "upper_torso":
-        crop_box = _avoid_face_overlap(crop_box, _normalized_box(parsed.get("face_box")))
+        crop_box = _avoid_face_overlap(crop_box, face_box)
 
     return _normalized_box_to_pixels(crop_box, width, height)
 
@@ -366,6 +392,30 @@ def _normalized_box(value: object) -> NormalizedBox | None:
         max(0.0, min(right, 1.0)),
         max(0.0, min(bottom, 1.0)),
     )
+
+
+def _normalized_boxes(value: object) -> list[NormalizedBox]:
+    if not isinstance(value, list):
+        return []
+    boxes: list[NormalizedBox] = []
+    for item in value:
+        box = _normalized_box(item)
+        if box is not None:
+            boxes.append(box)
+    return boxes
+
+
+def _breast_region_crop(breast_boxes: list[NormalizedBox], face_box: NormalizedBox | None) -> NormalizedBox:
+    left = min(box[0] for box in breast_boxes)
+    top = min(box[1] for box in breast_boxes)
+    right = max(box[2] for box in breast_boxes)
+    bottom = max(box[3] for box in breast_boxes)
+    width = right - left
+    height = bottom - top
+    pad_x = max(width * 0.16, 0.025)
+    pad_y = max(height * 0.14, 0.018)
+    crop = (left - pad_x, top - pad_y, right + pad_x, bottom + pad_y)
+    return _avoid_face_overlap(crop, face_box)
 
 
 def _tight_chest_crop(target_box: NormalizedBox, face_box: NormalizedBox | None) -> NormalizedBox:

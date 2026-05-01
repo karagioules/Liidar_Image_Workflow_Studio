@@ -293,3 +293,11 @@ export interface ApiKeyStatus {
   saved: boolean;
   model: string;
 }
+
+export interface ApiKeyTestResponse {
+  provider: string;
+  ok: boolean;
+  status_code: number | null;
+  model: string;
+  message: string;
+}
