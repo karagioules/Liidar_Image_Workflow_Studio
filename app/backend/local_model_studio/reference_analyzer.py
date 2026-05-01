@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from PIL import Image, ImageStat
 
@@ -14,6 +15,7 @@ from local_model_studio.schemas import (
     ReferenceAnalysisRequest,
     ReferenceAnalysisResponse,
     ReferenceImageDetails,
+    VisionTag,
 )
 
 
@@ -31,9 +33,20 @@ class ImageSignals:
     texture: float
 
 
+class ReferenceTagReport(Protocol):
+    tags: list
+    rating: str
+    rating_confidence: float
+    source: str
+
+    def reference_text(self) -> str:
+        ...
+
+
 def analyze_references(
     request: ReferenceAnalysisRequest,
     captions: list[str] | None = None,
+    tag_reports: list[ReferenceTagReport] | None = None,
 ) -> ReferenceAnalysisResponse:
     paths = [Path(path) for path in request.reference_images]
     signals = [_read_image_signals(path) for path in paths]
@@ -47,9 +60,9 @@ def analyze_references(
     texture = _texture_note(signals)
     count = len(signals)
     plural = "images" if count != 1 else "image"
-    caption_text = _caption_text(captions)
+    caption_text = _caption_text(captions, tag_reports)
     vision_prefix = f"local vision model caption: {caption_text}; " if caption_text else ""
-    analysis_images = _analysis_images(paths, signals, captions)
+    analysis_images = _analysis_images(paths, signals, captions, tag_reports)
     body_cues = [image.body_attributes for image in analysis_images]
     aggregate_intelligence = _aggregate_intelligence(analysis_images)
     warnings = _analysis_warnings(signals, captions)
@@ -96,10 +109,12 @@ def analyze_references(
     )
 
 
-def _caption_text(captions: list[str] | None) -> str:
-    if not captions:
+def _caption_text(captions: list[str] | None, tag_reports: list[ReferenceTagReport] | None = None) -> str:
+    if not captions and not tag_reports:
         return ""
-    cleaned = [caption.strip().rstrip(".") for caption in captions if caption.strip()]
+    cleaned = [caption.strip().rstrip(".") for caption in (captions or []) if caption.strip()]
+    if tag_reports:
+        cleaned.extend(report.reference_text().strip().rstrip(".") for report in tag_reports if report.reference_text().strip())
     return "; ".join(cleaned[:3])
 
 
@@ -114,13 +129,16 @@ def _analysis_images(
     paths: list[Path],
     signals: list[ImageSignals],
     captions: list[str] | None,
+    tag_reports: list[ReferenceTagReport] | None,
 ) -> list[ReferenceAnalysisImage]:
     images: list[ReferenceAnalysisImage] = []
     for index, (path, signal) in enumerate(zip(paths, signals, strict=True)):
         caption = captions[index].strip() if captions and index < len(captions) and captions[index].strip() else None
-        body_attributes = _body_attribute_cues(signal, caption)
-        image_details = _image_details(signal, caption, body_attributes)
-        adult_content = _adult_content_signals(caption, body_attributes)
+        tag_report = tag_reports[index] if tag_reports and index < len(tag_reports) else None
+        analysis_text = _analysis_text(caption, tag_report)
+        body_attributes = _body_attribute_cues(signal, analysis_text)
+        image_details = _image_details(signal, analysis_text, body_attributes)
+        adult_content = _adult_content_signals(analysis_text, body_attributes, tag_report)
         images.append(ReferenceAnalysisImage(
             path=str(path),
             file_name=path.name,
@@ -134,8 +152,38 @@ def _analysis_images(
             body_attributes=body_attributes,
             image_details=image_details,
             adult_content=adult_content,
+            vision_tags=_vision_tags(tag_report),
         ))
     return images
+
+
+def _analysis_text(caption: str | None, tag_report: ReferenceTagReport | None) -> str | None:
+    parts = []
+    if caption and caption.strip():
+        parts.append(caption.strip())
+    if tag_report is not None:
+        report_text = tag_report.reference_text().strip()
+        if report_text:
+            parts.append(report_text)
+    return "; ".join(parts) if parts else None
+
+
+def _vision_tags(tag_report: ReferenceTagReport | None) -> list[VisionTag]:
+    if tag_report is None:
+        return []
+    tags = [
+        VisionTag(
+            name=_display_tag(getattr(tag, "name", "")),
+            confidence=round(float(getattr(tag, "confidence", 0.0)) * 100),
+            source=tag_report.source,
+        )
+        for tag in tag_report.tags[:40]
+        if getattr(tag, "name", "")
+    ]
+    rating_confidence = round(float(tag_report.rating_confidence) * 100)
+    if tag_report.rating and tag_report.rating != "unknown":
+        tags.insert(0, VisionTag(name=f"rating: {tag_report.rating}", confidence=rating_confidence, source=tag_report.source))
+    return tags[:40]
 
 
 def _body_attribute_cues(signal: ImageSignals, caption: str | None) -> BodyAttributeCues:
@@ -174,13 +222,26 @@ def _image_details(signal: ImageSignals, caption: str | None, body_attributes: B
     )
 
 
-def _adult_content_signals(caption: str | None, body_attributes: BodyAttributeCues) -> AdultContentSignals:
+def _adult_content_signals(
+    caption: str | None,
+    body_attributes: BodyAttributeCues,
+    tag_report: ReferenceTagReport | None = None,
+) -> AdultContentSignals:
     caption_text = (caption or "").strip().lower()
-    explicit = _contains_any(caption_text, ["nude", "naked", "topless", "vulva", "genital", "nipples", "areola", "explicit", "sex"])
-    breast_visible = _contains_any(caption_text, ["breast", "breasts", "topless", "bare chest", "nude", "naked"])
-    nipple_visible = _contains_any(caption_text, ["nipple", "nipples", "areola", "areolas"])
-    genital_visible = _contains_any(caption_text, ["vulva", "genital", "genitals", "pussy", "crotch visible"])
-    buttocks_visible = _contains_any(caption_text, ["buttocks", "butt", "ass", "rear", "from behind"])
+    tag_names = _tag_names(tag_report)
+    explicit = _contains_any(caption_text, ["nude", "naked", "topless", "vulva", "genital", "nipples", "areola", "explicit", "sex"]) or _contains_tag(
+        tag_names, ["rating:explicit", "nude", "topless", "pussy", "vulva", "nipples", "areolae", "sex"]
+    )
+    breast_visible = _contains_any(caption_text, ["breast", "breasts", "topless", "bare chest", "nude", "naked"]) or _contains_tag(
+        tag_names, ["breasts", "large_breasts", "medium_breasts", "small_breasts", "topless", "nude"]
+    )
+    nipple_visible = _contains_any(caption_text, ["nipple", "nipples", "areola", "areolas"]) or _contains_tag(tag_names, ["nipples", "areolae"])
+    genital_visible = _contains_any(caption_text, ["vulva", "genital", "genitals", "pussy", "crotch visible"]) or _contains_tag(
+        tag_names, ["pussy", "vulva", "cameltoe"]
+    )
+    buttocks_visible = _contains_any(caption_text, ["buttocks", "butt", "ass", "rear", "from behind"]) or _contains_tag(
+        tag_names, ["ass", "buttocks", "from_behind"]
+    )
     sexual_activity = _contains_any(caption_text, ["sex", "sexual", "intercourse", "penetration", "oral", "masturbat"])
 
     if explicit:
@@ -201,7 +262,13 @@ def _adult_content_signals(caption: str | None, body_attributes: BodyAttributeCu
         for term in ["nude", "topless", "breasts", "nipples", "areola", "vulva", "genital", "buttocks", "sex", "bikini", "lingerie"]
         if term in caption_text
     ]
-    evidence = f"caption mentions {', '.join(evidence_terms)}" if evidence_terms else body_attributes.evidence
+    tag_evidence = _tag_evidence(tag_report)
+    if tag_evidence:
+        evidence = tag_evidence
+    elif evidence_terms:
+        evidence = f"caption mentions {', '.join(evidence_terms)}"
+    else:
+        evidence = body_attributes.evidence
     return AdultContentSignals(
         nudity_level=nudity_level,
         breast_visibility="visible" if breast_visible else _adult_part_fallback(body_attributes, "chest"),
@@ -327,6 +394,7 @@ def _aggregate_intelligence(images: list[ReferenceAnalysisImage]) -> AggregateRe
         background=_aggregate_detail(details, "background"),
         quality=_aggregate_detail(details, "quality"),
         adult_content=_aggregate_adult_content(adult_signals),
+        strong_tags=_aggregate_strong_tags(images),
         prompt_summary="",
         uncertainty_notes=[],
     )
@@ -387,6 +455,7 @@ def _strongest_activity_signal(values: list[str]) -> str:
 
 
 def _aggregate_prompt_summary(aggregate: AggregateReferenceIntelligence) -> str:
+    tag_summary = ", ".join(tag.name for tag in aggregate.strong_tags[:12])
     parts = [
         aggregate.face.summary,
         aggregate.hair.summary,
@@ -399,6 +468,7 @@ def _aggregate_prompt_summary(aggregate: AggregateReferenceIntelligence) -> str:
         f"adult-content read: {aggregate.adult_content.nudity_level}; breast visibility {aggregate.adult_content.breast_visibility}; "
         f"nipple/areola visibility {aggregate.adult_content.nipple_areola_visibility}; genital visibility {aggregate.adult_content.genital_visibility}; "
         f"buttocks visibility {aggregate.adult_content.buttocks_visibility}",
+        f"strong local tags: {tag_summary}" if tag_summary else "",
     ]
     return _fit_text("Prompt-ready reference intelligence: " + "; ".join(part for part in parts if part), 900)
 
@@ -428,6 +498,16 @@ def _unique_phrases(values: list[str]) -> list[str]:
             seen.add(key)
             unique.append(normalized)
     return unique
+
+
+def _aggregate_strong_tags(images: list[ReferenceAnalysisImage]) -> list[VisionTag]:
+    best_by_name: dict[str, VisionTag] = {}
+    for image in images:
+        for tag in image.vision_tags:
+            current = best_by_name.get(tag.name)
+            if current is None or tag.confidence > current.confidence:
+                best_by_name[tag.name] = tag
+    return sorted(best_by_name.values(), key=lambda tag: tag.confidence, reverse=True)[:60]
 
 
 def _coverage_from_caption(caption: str) -> tuple[str, str, int]:
@@ -475,6 +555,36 @@ def _chest_note(cues: list[BodyAttributeCues]) -> str:
 
 def _contains_any(value: str, needles: list[str]) -> bool:
     return any(needle in value for needle in needles)
+
+
+def _contains_tag(tags: set[str], needles: list[str]) -> bool:
+    return any(needle in tags for needle in needles)
+
+
+def _tag_names(tag_report: ReferenceTagReport | None) -> set[str]:
+    if tag_report is None:
+        return set()
+    names = {getattr(tag, "name", "").casefold() for tag in tag_report.tags if getattr(tag, "name", "")}
+    if tag_report.rating:
+        names.add(f"rating:{tag_report.rating.casefold()}")
+    return names
+
+
+def _tag_evidence(tag_report: ReferenceTagReport | None) -> str:
+    if tag_report is None:
+        return ""
+    tags = [
+        f"{_display_tag(getattr(tag, 'name', ''))} {round(float(getattr(tag, 'confidence', 0.0)) * 100)}%"
+        for tag in tag_report.tags[:8]
+        if getattr(tag, "name", "")
+    ]
+    if tag_report.rating:
+        tags.insert(0, f"rating {tag_report.rating} {round(float(tag_report.rating_confidence) * 100)}%")
+    return _fit_text(f"{tag_report.source}: " + ", ".join(tags), 320) if tags else ""
+
+
+def _display_tag(tag: str) -> str:
+    return tag.replace("_", " ").replace("rating:", "rating: ")
 
 
 def _first_present(value: str, needles: list[str]) -> str:

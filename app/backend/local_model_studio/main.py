@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from local_model_studio.comfy_client import ComfyClient
 from local_model_studio.dataset_scanner import scan_dataset
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
+from local_model_studio.local_image_tagger import local_tagger_from_workspace
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
 from local_model_studio.profile_store import ProfileStore
@@ -122,8 +123,13 @@ def create_app(
             if captioner is None and vision:
                 captioner = local_captioner_from_workspace(workspace_paths.root)
                 app.state.captioner = captioner
+            tagger = getattr(app.state, "tagger", None)
+            if tagger is None and vision:
+                tagger = local_tagger_from_workspace(workspace_paths.root)
+                app.state.tagger = tagger
             captions = captioner([Path(path) for path in request.reference_images]) if captioner else None
-            return analyze_references(request, captions=captions)
+            tag_reports = tagger([Path(path) for path in request.reference_images]) if tagger else None
+            return analyze_references(request, captions=captions, tag_reports=tag_reports)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:

@@ -93,8 +93,15 @@ class AdultContentSignals(BaseModel):
     evidence: str = Field(max_length=320)
 
 
+class VisionTag(BaseModel):
+    name: str = Field(max_length=80)
+    confidence: int = Field(ge=0, le=100)
+    source: str = Field(max_length=120)
+
+
 class AggregateReferenceIntelligence(ReferenceImageDetails):
     adult_content: AdultContentSignals
+    strong_tags: list[VisionTag] = Field(default_factory=list)
     prompt_summary: str = Field(max_length=900)
     uncertainty_notes: list[str] = Field(default_factory=list)
 
@@ -112,6 +119,7 @@ class ReferenceAnalysisImage(BaseModel):
     body_attributes: BodyAttributeCues
     image_details: ReferenceImageDetails
     adult_content: AdultContentSignals
+    vision_tags: list[VisionTag] = Field(default_factory=list)
 
 
 class ReferenceAnalysisResponse(CharacterProfile):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import local_model_studio.main as main_module
@@ -22,6 +23,23 @@ class FakeComfyClient:
 class FailingComfyClient:
     def queue_prompt(self, workflow: dict) -> str:
         raise RuntimeError("ComfyUI returned an invalid response.")
+
+
+@dataclass(frozen=True)
+class FakeTag:
+    name: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class FakeTagReport:
+    tags: list[FakeTag]
+    rating: str = "explicit"
+    rating_confidence: float = 0.91
+    source: str = "wd tagger test"
+
+    def reference_text(self) -> str:
+        return "wd tagger test rating explicit; local visual tags: " + ", ".join(tag.name for tag in self.tags)
 
 
 def test_profile_crud(tmp_path: Path) -> None:
@@ -332,6 +350,52 @@ def test_analyze_references_flags_explicit_adult_content_clinically(tmp_path: Pa
     assert adult["buttocks_visibility"] == "visible"
     assert adult["sexual_activity"] == "explicit sexual pose or activity cue"
     assert body["aggregate_intelligence"]["adult_content"]["nudity_level"] == "explicit nudity"
+
+
+def test_analyze_references_uses_local_tagger_for_stronger_body_signals(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "TaggedRefs"
+    source.mkdir(parents=True)
+    reference = source / "tagged.png"
+    Image.new("RGB", (900, 1400), color=(226, 202, 184)).save(reference)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: ["adult woman standing in a studio"]
+    app.state.tagger = lambda paths: [
+        FakeTagReport(
+            tags=[
+                FakeTag("nude", 0.92),
+                FakeTag("breasts", 0.88),
+                FakeTag("nipples", 0.81),
+                FakeTag("pussy", 0.79),
+                FakeTag("ass", 0.73),
+                FakeTag("long_hair", 0.69),
+            ],
+        )
+    ]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "tagged-ref",
+            "display_name": "",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(reference)],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    adult = body["analysis_images"][0]["adult_content"]
+    assert adult["nudity_level"] == "explicit nudity"
+    assert adult["breast_visibility"] == "visible"
+    assert adult["nipple_areola_visibility"] == "visible"
+    assert adult["genital_visibility"] == "visible"
+    assert adult["buttocks_visibility"] == "visible"
+    assert body["analysis_images"][0]["vision_tags"][0]["name"] == "rating: explicit"
+    assert any(tag["name"] == "nude" for tag in body["aggregate_intelligence"]["strong_tags"])
 
 
 def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(tmp_path: Path) -> None:

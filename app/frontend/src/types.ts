@@ -46,6 +46,7 @@ export interface ReferenceAnalysisImage {
   };
   image_details: ReferenceImageDetails;
   adult_content: AdultContentSignals;
+  vision_tags: VisionTag[];
 }
 
 export interface AttributeDetail {
@@ -81,8 +82,15 @@ export interface AdultContentSignals {
   evidence: string;
 }
 
+export interface VisionTag {
+  name: string;
+  confidence: number;
+  source: string;
+}
+
 export interface AggregateReferenceIntelligence extends ReferenceImageDetails {
   adult_content: AdultContentSignals;
+  strong_tags: VisionTag[];
   prompt_summary: string;
   uncertainty_notes: string[];
 }

@@ -143,7 +143,12 @@ describe("App", () => {
                   sexual_activity: "none described",
                   confidence: 72,
                   evidence: "caption mentions bikini"
-                }
+                },
+                vision_tags: [
+                  { name: "rating: questionable", confidence: 61, source: "wd tagger test" },
+                  { name: "bikini", confidence: 88, source: "wd tagger test" },
+                  { name: "long hair", confidence: 82, source: "wd tagger test" }
+                ]
               }
             ],
             aggregate_intelligence: {
@@ -169,6 +174,10 @@ describe("App", () => {
                 confidence: 72,
                 evidence: "caption mentions bikini"
               },
+              strong_tags: [
+                { name: "bikini", confidence: 88, source: "wd tagger test" },
+                { name: "long hair", confidence: 82, source: "wd tagger test" }
+              ],
               prompt_summary: "Prompt-ready reference intelligence: long dark wavy hair, warm natural skin tone, swimwear-covered body cues, standing beach pose.",
               uncertainty_notes: ["Exact anatomy requires clearer uncovered or targeted references."]
             }

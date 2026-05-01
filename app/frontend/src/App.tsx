@@ -18,7 +18,8 @@ import type {
   RuntimeStatus,
   SourceRights,
   TrainerStatus,
-  TrainingJobConfig
+  TrainingJobConfig,
+  VisionTag
 } from "./types";
 
 type TabId = "runtime" | "characters" | "generate" | "training";
@@ -985,6 +986,7 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
             <AttributeCard label="Pose" detail={intelligence.pose} />
           </div>
           <AdultSignalCard signals={intelligence.adult_content} />
+          {intelligence.strong_tags.length ? <VisionTagCloud tags={intelligence.strong_tags} /> : null}
           {intelligence.uncertainty_notes.length ? <WarningList warnings={intelligence.uncertainty_notes} /> : null}
         </section>
         <div className="analysis-image-grid">
@@ -1004,6 +1006,7 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
                   <div><dt>Framing</dt><dd>{image.body_attributes.pose_framing}</dd></div>
                   <div><dt>Confidence</dt><dd>{image.body_attributes.confidence}%</dd></div>
                 </dl>
+                {image.vision_tags.length ? <VisionTagCloud tags={image.vision_tags.slice(0, 12)} compact /> : null}
                 <p className="cue-evidence">{image.body_attributes.evidence}</p>
               </div>
             </article>
@@ -1012,6 +1015,18 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
         {analysis.analysis_warnings.length ? <WarningList warnings={analysis.analysis_warnings} /> : null}
       </div>
     </section>
+  );
+}
+
+function VisionTagCloud({ tags, compact = false }: { tags: VisionTag[]; compact?: boolean }) {
+  return (
+    <div className={compact ? "vision-tag-cloud compact" : "vision-tag-cloud"}>
+      {tags.slice(0, compact ? 12 : 24).map((tag) => (
+        <span key={`${tag.name}-${tag.confidence}`} title={tag.source}>
+          {tag.name} <strong>{tag.confidence}%</strong>
+        </span>
+      ))}
+    </div>
   );
 }
 
