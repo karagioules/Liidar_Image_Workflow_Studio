@@ -441,10 +441,18 @@ function CharactersPanel(props: {
   const { characters, selectedCharacterId, editingCharacter, onSelect, onNew, onChange, onSave } = props;
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
-  const [analysis, setAnalysis] = useState<ReferenceAnalysisResponse | null>(null);
+  const [analysisByCharacterId, setAnalysisByCharacterId] = useState<Record<string, ReferenceAnalysisResponse>>({});
+  const currentAnalysis = analysisByCharacterId[editingCharacter.id] ?? null;
+  useEffect(() => {
+    setAnalysisError("");
+  }, [editingCharacter.id]);
   const update = (field: keyof CharacterProfile, value: string) => onChange({ ...editingCharacter, [field]: value });
   const updateReferences = (paths: string[]) => {
-    setAnalysis(null);
+    setAnalysisByCharacterId((current) => {
+      const next = { ...current };
+      delete next[editingCharacter.id];
+      return next;
+    });
     onChange({ ...editingCharacter, reference_images: uniquePaths(paths) });
   };
   const createDraft = () => {
@@ -461,7 +469,7 @@ function CharactersPanel(props: {
       setIsAnalyzing(true);
       setAnalysisError("");
       const analyzed = await api.analyzeReferences(editingCharacter);
-      setAnalysis(analyzed);
+      setAnalysisByCharacterId((current) => ({ ...current, [editingCharacter.id]: analyzed }));
       onChange({ ...editingCharacter, ...analyzed, reference_images: analyzed.reference_images ?? editingCharacter.reference_images });
     } catch (caught) {
       setAnalysisError(caught instanceof Error ? caught.message : "Unable to analyze reference images.");
@@ -504,7 +512,7 @@ function CharactersPanel(props: {
         <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
         {analysisError ? <div className="inline-error">{analysisError}</div> : null}
         {isAnalyzing ? <AnalysisProgress imageCount={editingCharacter.reference_images.length} /> : null}
-        {analysis ? <ReferenceAnalysisPanel analysis={analysis} /> : <CharacterReadiness profile={editingCharacter} />}
+        {currentAnalysis ? <ReferenceAnalysisPanel analysis={currentAnalysis} /> : <CharacterReadiness profile={editingCharacter} />}
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={() => void analyzeReferences()} disabled={!editingCharacter.reference_images.length || isAnalyzing}>
             <Search aria-hidden="true" />

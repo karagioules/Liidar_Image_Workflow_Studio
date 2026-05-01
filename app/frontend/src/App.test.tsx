@@ -390,6 +390,24 @@ describe("App", () => {
     expect((screen.getByLabelText("Skin tone") as HTMLTextAreaElement).value).toContain("warm");
   });
 
+  it("keeps reference analysis scoped to the active character", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Characters" }));
+    await user.type(
+      screen.getByLabelText("Reference image paths"),
+      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
+    );
+    await user.click(screen.getByRole("button", { name: /analyze references/i }));
+    expect(await screen.findByText("Reference blueprint")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /new character/i }));
+
+    expect(screen.queryByText("Reference blueprint")).not.toBeInTheDocument();
+    expect(screen.getByText("Setup readiness")).toBeInTheDocument();
+  });
+
   it("shows analysis progress while references are being analyzed", async () => {
     const fetchMock = vi.mocked(fetch);
     const defaultFetch = fetchMock.getMockImplementation();
