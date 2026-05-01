@@ -40,6 +40,8 @@ try {
     $workspaceRoot = (Resolve-Path $PSScriptRoot).Path
     $backendPath = Join-Path $workspaceRoot "app\backend"
     $frontendPath = Join-Path $workspaceRoot "app\frontend"
+    $comfyPath = Join-Path $workspaceRoot "ComfyUI"
+    $comfyPython = Join-Path $comfyPath ".venv\Scripts\python.exe"
     $frontendModules = Join-Path $frontendPath "node_modules"
 
     if (-not (Test-Path -LiteralPath $backendPath -PathType Container)) {
@@ -48,6 +50,15 @@ try {
 
     if (-not (Test-Path -LiteralPath $frontendPath -PathType Container)) {
         throw "Frontend folder not found at $frontendPath"
+    }
+
+    if (-not (Test-Path -LiteralPath $comfyPython -PathType Leaf)) {
+        throw "ComfyUI GPU Python environment is not ready. Expected $comfyPython"
+    }
+
+    & $comfyPython -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "ComfyUI PyTorch cannot see the GPU. Reinstall the RDNA4 ROCm wheel before launching."
     }
 
     Write-Host "Starting Liidar Local Model Studio..."
@@ -64,12 +75,24 @@ try {
 
     $backendPython = Get-BackendPythonCommand -BackendPath $backendPath
     Write-Host "Backend Python: $($backendPython.Label)"
+    Write-Host "ComfyUI Python: $comfyPython"
     Write-Host ""
 
     $backendPathForCommand = $backendPath -replace "'", "''"
     $frontendPathForCommand = $frontendPath -replace "'", "''"
+    $comfyPathForCommand = $comfyPath -replace "'", "''"
     $backendCommand = "Set-Location -LiteralPath '$backendPathForCommand'; $($backendPython.Command) -m uvicorn local_model_studio.main:app --reload --host 127.0.0.1 --port 8000"
     $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --port 5274"
+    $comfyCommand = "Set-Location -LiteralPath '$comfyPathForCommand'; `"$comfyPython`" main.py --listen 127.0.0.1 --port 8188"
+
+    Start-Process powershell.exe -ArgumentList @(
+        "-NoExit",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        $comfyCommand
+    )
 
     Start-Process powershell.exe -ArgumentList @(
         "-NoExit",
@@ -91,8 +114,9 @@ try {
 
     Write-Host "Backend:  http://127.0.0.1:8000"
     Write-Host "Frontend: http://127.0.0.1:5274"
+    Write-Host "ComfyUI:  http://127.0.0.1:8188"
     Write-Host ""
-    Write-Host "Two PowerShell windows were opened for logs. Close those windows to stop the servers."
+    Write-Host "Three PowerShell windows were opened for logs. Close those windows to stop the servers."
     exit 0
 } catch {
     Write-Error "Launch failed: $($_.Exception.Message)"

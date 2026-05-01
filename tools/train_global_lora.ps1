@@ -30,6 +30,11 @@ if (-not (Test-Path -LiteralPath $Python)) {
   $Python = "python"
 }
 
+& $Python -c "import torch; print('Trainer torch:', torch.__version__); print('GPU available:', torch.cuda.is_available()); print('GPU device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU fallback')"
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+
 & $Python $TrainScript `
   --pretrained_model_name_or_path="$BaseModel" `
   --train_data_dir="$DatasetPath" `

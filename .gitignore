@@ -20,6 +20,8 @@ logs/
 *.log
 .backend.pid
 .frontend.pid
+.comfy.pid
+tools/sd-scripts/
 config/characters/*.json
 !config/characters/.gitkeep
 config/secrets/
