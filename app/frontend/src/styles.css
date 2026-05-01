@@ -527,6 +527,33 @@ textarea {
   gap: 8px;
 }
 
+.selected-paths-bar {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #17202a;
+  text-align: left;
+}
+
+.selected-paths-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-paths-bar small {
+  color: #607083;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.selected-path-list {
+  display: grid;
+  gap: 8px;
+}
+
 .selected-path {
   padding: 8px 10px;
   border: 1px solid #dce3ea;
@@ -1019,6 +1046,7 @@ body {
 .row-button span,
 .path-module-heading span,
 .selected-paths p,
+.selected-paths-bar small,
 .analysis-progress span,
 .reference-intelligence p,
 .attribute-card span,
@@ -1050,6 +1078,7 @@ body {
 .notice,
 .metric,
 .path-module,
+.selected-paths-bar,
 .selected-path,
 .analysis-panel,
 .reference-intelligence,
@@ -1083,7 +1112,8 @@ body {
 }
 
 .row-button:hover,
-.row-button.active {
+.row-button.active,
+.selected-paths-bar:hover {
   background: #143344;
   color: #b9efff;
   border-color: #247b91;
@@ -1133,6 +1163,7 @@ textarea:focus {
 
 .secondary-button,
 .mini-button,
+.selected-paths-bar,
 .icon-mini-button {
   background: #1b2a3a;
   color: #e7f0f8;
@@ -1141,6 +1172,7 @@ textarea:focus {
 
 .secondary-button:hover,
 .mini-button:hover,
+.selected-paths-bar:hover,
 .icon-mini-button:hover {
   background: #24374a;
 }

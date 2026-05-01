@@ -338,11 +338,12 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /select images/i }));
 
     expect(await screen.findByText("1 image selected.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /show selected image list/i }));
     expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\picked.png").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /analyze references/i })).toBeEnabled();
   });
 
-  it("starts a new character and supports bulk reference actions", async () => {
+  it("starts a new character and supports folder reference selection", async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -353,7 +354,8 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /select folder/i }));
     expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: /clear selected/i }));
+    await user.click(screen.getByRole("button", { name: /show selected image list/i }));
+    await user.click(screen.getByRole("button", { name: /remove h:\\devwork\\win_apps\\liidar\\models\\marianna\\picked.png/i }));
     expect(screen.getByText("0 selected")).toBeInTheDocument();
   });
 

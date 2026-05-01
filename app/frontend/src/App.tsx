@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
@@ -848,9 +848,15 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
   const [browserError, setBrowserError] = useState("");
   const [isSelecting, setIsSelecting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [isListOpen, setIsListOpen] = useState(false);
+
+  useEffect(() => {
+    if (!paths.length) {
+      setIsListOpen(false);
+    }
+  }, [paths.length]);
 
   const removePath = (path: string) => onChange(paths.filter((candidate) => candidate !== path));
-  const clearPaths = () => onChange([]);
   const selectReferences = async (mode: "files" | "folder") => {
     try {
       setIsSelecting(true);
@@ -862,6 +868,7 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
         return;
       }
       onChange(uniquePaths([...paths, ...result.selected_paths]));
+      setIsListOpen(false);
       const selectedCount = result.selected_paths.length;
       setImportMessage(`${selectedCount} image${selectedCount === 1 ? "" : "s"} selected.`);
     } catch (caught) {
@@ -893,23 +900,35 @@ function ReferencePathModule({ paths, onChange }: { paths: string[]; onChange: (
       {browserError ? <div className="inline-error">{browserError}</div> : null}
       <div className="selected-paths">
         {paths.length ? (
-          <div className="selected-paths-bar">
-            <strong>{paths.length} selected</strong>
-            <button type="button" className="mini-button" onClick={clearPaths}>
-              Clear selected
-            </button>
-          </div>
+          <button
+            type="button"
+            className="selected-paths-bar"
+            aria-expanded={isListOpen}
+            aria-controls="selected-reference-list"
+            aria-label={`${isListOpen ? "Hide" : "Show"} selected image list`}
+            onClick={() => setIsListOpen((current) => !current)}
+          >
+            <span>
+              {isListOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+              <strong>{paths.length} selected</strong>
+            </span>
+            <small>{isListOpen ? "Hide list" : "Show list"}</small>
+          </button>
         ) : null}
         {paths.length ? (
-          paths.map((path) => (
-            <div className="selected-path" key={path}>
-              <img className="path-thumb" src={api.thumbnailUrl(path)} alt="" />
-              <span>{path}</span>
-              <button type="button" className="icon-mini-button" onClick={() => removePath(path)} aria-label={`Remove ${path}`}>
-                <X aria-hidden="true" />
-              </button>
-            </div>
-          ))
+          isListOpen ? (
+          <div id="selected-reference-list" className="selected-path-list">
+            {paths.map((path) => (
+              <div className="selected-path" key={path}>
+                <img className="path-thumb" src={api.thumbnailUrl(path)} alt="" />
+                <span>{path}</span>
+                <button type="button" className="icon-mini-button" onClick={() => removePath(path)} aria-label={`Remove ${path}`}>
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+          ) : null
         ) : (
           <p>No reference images selected.</p>
         )}
