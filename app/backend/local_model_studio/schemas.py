@@ -11,6 +11,7 @@ AdultAgeCategory = Literal["adult_18_plus", "adult_21_plus", "adult_25_plus", "a
 QualityPreset = Literal["fast", "balanced", "high", "ultra"]
 GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "reference_match"]
 SeedStrategy = Literal["locked", "vary", "reuse_last"]
+VisibilityLevel = Literal["clear", "partial", "covered", "not_visible", "unclear"]
 
 
 class CharacterProfile(BaseModel):
@@ -59,6 +60,45 @@ class BodyAttributeCues(BaseModel):
     evidence: str = Field(max_length=240)
 
 
+class AttributeDetail(BaseModel):
+    visibility: VisibilityLevel
+    confidence: int = Field(ge=0, le=100)
+    summary: str = Field(max_length=260)
+    evidence: str = Field(max_length=260)
+
+
+class ReferenceImageDetails(BaseModel):
+    face: AttributeDetail
+    hair: AttributeDetail
+    skin: AttributeDetail
+    body_shape: AttributeDetail
+    chest: AttributeDetail
+    waist_hips: AttributeDetail
+    pose: AttributeDetail
+    clothing: AttributeDetail
+    lighting: AttributeDetail
+    camera: AttributeDetail
+    background: AttributeDetail
+    quality: AttributeDetail
+
+
+class AdultContentSignals(BaseModel):
+    nudity_level: str = Field(max_length=120)
+    breast_visibility: str = Field(max_length=120)
+    nipple_areola_visibility: str = Field(max_length=120)
+    genital_visibility: str = Field(max_length=120)
+    buttocks_visibility: str = Field(max_length=120)
+    sexual_activity: str = Field(max_length=160)
+    confidence: int = Field(ge=0, le=100)
+    evidence: str = Field(max_length=320)
+
+
+class AggregateReferenceIntelligence(ReferenceImageDetails):
+    adult_content: AdultContentSignals
+    prompt_summary: str = Field(max_length=900)
+    uncertainty_notes: list[str] = Field(default_factory=list)
+
+
 class ReferenceAnalysisImage(BaseModel):
     path: str
     file_name: str
@@ -70,12 +110,15 @@ class ReferenceAnalysisImage(BaseModel):
     texture: str
     caption: str | None = None
     body_attributes: BodyAttributeCues
+    image_details: ReferenceImageDetails
+    adult_content: AdultContentSignals
 
 
 class ReferenceAnalysisResponse(CharacterProfile):
     consistency_score: int = Field(ge=0, le=100)
     analysis_warnings: list[str] = Field(default_factory=list)
     analysis_images: list[ReferenceAnalysisImage] = Field(default_factory=list)
+    aggregate_intelligence: AggregateReferenceIntelligence
 
 
 class GenerationRequest(BaseModel):

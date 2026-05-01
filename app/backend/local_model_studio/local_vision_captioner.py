@@ -8,6 +8,10 @@ from PIL import Image
 
 
 DEFAULT_CAPTION_MODEL = "Salesforce/blip-image-captioning-base"
+CLINICAL_REFERENCE_PROMPTS = [
+    "Describe the adult person's visible body, clothing coverage, pose, camera framing, and face details.",
+    "Using clinical terms, describe whether breasts, nipples, areola, genitals, buttocks, nudity, or sexual activity are visible.",
+]
 
 
 class LocalVisionCaptioner:
@@ -49,10 +53,46 @@ class LocalVisionCaptioner:
             raise RuntimeError("Local vision model is not loaded.")
         with Image.open(image_path) as image:
             image = image.convert("RGB")
+            captions = [self._generate_caption(image)]
+            for prompt in CLINICAL_REFERENCE_PROMPTS:
+                prompted_caption = self._generate_caption(image, prompt)
+                if not _is_prompt_echo(prompted_caption):
+                    captions.append(prompted_caption)
+        return "; ".join(_unique_caption_parts(captions))
+
+    def _generate_caption(self, image: Image.Image, prompt: str | None = None) -> str:
+        if self._processor is None or self._model is None:
+            raise RuntimeError("Local vision model is not loaded.")
+        if prompt:
+            inputs = self._processor(image, prompt, return_tensors="pt")
+        else:
             inputs = self._processor(image, return_tensors="pt")
-        output = self._model.generate(**inputs, max_new_tokens=36)
+        output = self._model.generate(**inputs, max_new_tokens=52)
         caption = self._processor.decode(output[0], skip_special_tokens=True)
         return caption.strip()
+
+
+def _unique_caption_parts(captions: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for caption in captions:
+        normalized = " ".join(caption.split()).strip(" ;.")
+        key = normalized.casefold()
+        if normalized and key not in seen:
+            seen.add(key)
+            unique.append(normalized)
+    return unique
+
+
+def _is_prompt_echo(caption: str) -> bool:
+    normalized = " ".join(caption.casefold().split())
+    echo_markers = [
+        "describe the adult",
+        "using clinical terms",
+        "whether breasts",
+        "clothing coverage, pose, camera framing",
+    ]
+    return any(marker in normalized for marker in echo_markers)
 
 
 def local_captioner_from_workspace(workspace_root: Path) -> LocalVisionCaptioner:

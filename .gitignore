@@ -17,6 +17,7 @@ inputs/
 datasets/
 training-runs/
 logs/
+*.log
 .backend.pid
 .frontend.pid
 config/characters/*.json

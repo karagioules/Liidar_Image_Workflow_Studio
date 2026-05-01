@@ -119,9 +119,59 @@ describe("App", () => {
                   pose_framing: "full or upper body visible",
                   confidence: 72,
                   evidence: "caption mentions bikini"
+                },
+                image_details: {
+                  face: { visibility: "partial", confidence: 55, summary: "face present but not identity-locked", evidence: "caption mentions woman" },
+                  hair: { visibility: "clear", confidence: 82, summary: "long dark wavy hair", evidence: "caption mentions dark wavy hair" },
+                  skin: { visibility: "partial", confidence: 66, summary: "warm natural skin tone", evidence: "warm image tone" },
+                  body_shape: { visibility: "partial", confidence: 70, summary: "adult full-body proportions visible", evidence: "caption mentions full body" },
+                  chest: { visibility: "partial", confidence: 72, summary: "swimwear-covered chest/body shape; exact attributes require clearer references", evidence: "caption mentions bikini" },
+                  waist_hips: { visibility: "partial", confidence: 64, summary: "partial waist and hip cues from body framing", evidence: "full body framing" },
+                  pose: { visibility: "clear", confidence: 80, summary: "standing beach pose", evidence: "caption mentions beach" },
+                  clothing: { visibility: "clear", confidence: 84, summary: "red bikini", evidence: "caption mentions red bikini" },
+                  lighting: { visibility: "clear", confidence: 75, summary: "natural mid-key lighting", evidence: "image brightness" },
+                  camera: { visibility: "partial", confidence: 60, summary: "portrait frame", evidence: "image orientation" },
+                  background: { visibility: "clear", confidence: 82, summary: "beach setting", evidence: "caption mentions beach" },
+                  quality: { visibility: "clear", confidence: 78, summary: "moderate natural texture", evidence: "image texture" }
+                },
+                adult_content: {
+                  nudity_level: "non-explicit revealing clothing",
+                  breast_visibility: "covered or partially visible",
+                  nipple_areola_visibility: "not clearly described",
+                  genital_visibility: "not clearly described",
+                  buttocks_visibility: "not clearly described",
+                  sexual_activity: "none described",
+                  confidence: 72,
+                  evidence: "caption mentions bikini"
                 }
               }
-            ]
+            ],
+            aggregate_intelligence: {
+              face: { visibility: "partial", confidence: 55, summary: "face present but not identity-locked", evidence: "1 image" },
+              hair: { visibility: "clear", confidence: 82, summary: "long dark wavy hair", evidence: "consistent caption cue" },
+              skin: { visibility: "partial", confidence: 66, summary: "warm natural skin tone", evidence: "image tone" },
+              body_shape: { visibility: "partial", confidence: 70, summary: "adult full-body proportions visible", evidence: "full body framing" },
+              chest: { visibility: "partial", confidence: 72, summary: "swimwear-covered chest/body shape; exact attributes require clearer references", evidence: "caption mentions bikini" },
+              waist_hips: { visibility: "partial", confidence: 64, summary: "partial waist and hip cues from body framing", evidence: "full body framing" },
+              pose: { visibility: "clear", confidence: 80, summary: "standing beach pose", evidence: "caption mentions beach" },
+              clothing: { visibility: "clear", confidence: 84, summary: "red bikini", evidence: "caption mentions red bikini" },
+              lighting: { visibility: "clear", confidence: 75, summary: "natural mid-key lighting", evidence: "image brightness" },
+              camera: { visibility: "partial", confidence: 60, summary: "portrait frame", evidence: "image orientation" },
+              background: { visibility: "clear", confidence: 82, summary: "beach setting", evidence: "caption mentions beach" },
+              quality: { visibility: "clear", confidence: 78, summary: "moderate natural texture", evidence: "image texture" },
+              adult_content: {
+                nudity_level: "non-explicit revealing clothing",
+                breast_visibility: "covered or partially visible",
+                nipple_areola_visibility: "not clearly described",
+                genital_visibility: "not clearly described",
+                buttocks_visibility: "not clearly described",
+                sexual_activity: "none described",
+                confidence: 72,
+                evidence: "caption mentions bikini"
+              },
+              prompt_summary: "Prompt-ready reference intelligence: long dark wavy hair, warm natural skin tone, swimwear-covered body cues, standing beach pose.",
+              uncertainty_notes: ["Exact anatomy requires clearer uncovered or targeted references."]
+            }
           });
         }
 
@@ -319,6 +369,9 @@ describe("App", () => {
     expect(await screen.findByDisplayValue("Marianna")).toBeInTheDocument();
     expect(screen.getByText("76")).toBeInTheDocument();
     expect(screen.getByText("a woman in a white shirt and red bikini on the beach")).toBeInTheDocument();
+    expect(screen.getByText("Reference intelligence")).toBeInTheDocument();
+    expect(screen.getAllByText("long dark wavy hair").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/exact attributes require clearer references/i).length).toBeGreaterThan(0);
     expect(screen.getByText("swimwear")).toBeInTheDocument();
     expect(screen.getByText("covered by swimwear or clothing")).toBeInTheDocument();
     expect(screen.getByText("Add 2-4 more references for stronger identity consistency.")).toBeInTheDocument();

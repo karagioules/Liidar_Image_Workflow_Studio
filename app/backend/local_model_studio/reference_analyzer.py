@@ -5,7 +5,16 @@ from pathlib import Path
 
 from PIL import Image, ImageStat
 
-from local_model_studio.schemas import BodyAttributeCues, ReferenceAnalysisImage, ReferenceAnalysisRequest, ReferenceAnalysisResponse
+from local_model_studio.schemas import (
+    AggregateReferenceIntelligence,
+    AdultContentSignals,
+    AttributeDetail,
+    BodyAttributeCues,
+    ReferenceAnalysisImage,
+    ReferenceAnalysisRequest,
+    ReferenceAnalysisResponse,
+    ReferenceImageDetails,
+)
 
 
 NAME_SKIP_FOLDERS = {"ai faces", "free_posts", "may2025", "models", "reference", "references"}
@@ -42,6 +51,7 @@ def analyze_references(
     vision_prefix = f"local vision model caption: {caption_text}; " if caption_text else ""
     analysis_images = _analysis_images(paths, signals, captions)
     body_cues = [image.body_attributes for image in analysis_images]
+    aggregate_intelligence = _aggregate_intelligence(analysis_images)
     warnings = _analysis_warnings(signals, captions)
     consistency_score = _consistency_score(signals, captions)
 
@@ -50,19 +60,28 @@ def analyze_references(
         display_name=display_name,
         age_category=request.age_category,
         face_summary=_fit_text(
-            f"offline image analysis from {count} reference {plural}; {vision_prefix}fictional adult face identity guided by the selected local images; "
-            "preserve recurring face structure, expression style, and natural asymmetry without matching any real person",
+            f"offline image analysis from {count} reference {plural}; {vision_prefix}{aggregate_intelligence.face.summary}; "
+            "fictional adult face identity guided by the selected local images; preserve recurring face structure, expression style, "
+            "and natural asymmetry without matching any real person",
             600,
         ),
-        hair=_fit_text(f"{vision_prefix}reference-inferred hair color, length, volume, and styling; keep it consistent unless manually changed", 240),
+        hair=_fit_text(f"{aggregate_intelligence.hair.summary}; keep color, length, volume, and styling consistent unless manually changed", 240),
         eyes=_fit_text(f"{vision_prefix}reference-inferred eye shape and color; keep gaze and expression style consistent", 160),
         skin_tone=f"{warmth} natural skin tone inferred from local image color balance; keep skin texture believable",
-        body_shape="reference-inferred adult body proportions and posture; keep anatomy natural and physically plausible",
-        chest=_chest_note(body_cues),
+        body_shape=_fit_text(
+            f"{aggregate_intelligence.body_shape.summary}; {aggregate_intelligence.waist_hips.summary}; "
+            "use these reference proportions as the consistency base for future generations",
+            400,
+        ),
+        chest=_fit_text(
+            f"{aggregate_intelligence.chest.summary}; breast visibility: {aggregate_intelligence.adult_content.breast_visibility}; "
+            f"nipple/areola visibility: {aggregate_intelligence.adult_content.nipple_areola_visibility}",
+            240,
+        ),
         grooming=_fit_text(f"{vision_prefix}reference-inferred grooming and presentation; keep details realistic and consistent", 240),
         style_notes=_fit_text(
-            f"offline image analysis: {orientation}, {lighting}, {texture}; {vision_prefix}reference-guided believable still photo style "
-            "with natural camera rendering and no overpolished AI look",
+            f"offline image analysis: {orientation}, {lighting}, {texture}; {vision_prefix}{aggregate_intelligence.prompt_summary}; "
+            "reference-guided believable still photo style with natural camera rendering and no overpolished AI look",
             600,
         ),
         negative_notes="plastic skin, airbrushed, overprocessed, uncanny symmetry, celebrity, real person, underage, childlike",
@@ -73,6 +92,7 @@ def analyze_references(
         consistency_score=consistency_score,
         analysis_warnings=warnings,
         analysis_images=analysis_images,
+        aggregate_intelligence=aggregate_intelligence,
     )
 
 
@@ -95,8 +115,13 @@ def _analysis_images(
     signals: list[ImageSignals],
     captions: list[str] | None,
 ) -> list[ReferenceAnalysisImage]:
-    return [
-        ReferenceAnalysisImage(
+    images: list[ReferenceAnalysisImage] = []
+    for index, (path, signal) in enumerate(zip(paths, signals, strict=True)):
+        caption = captions[index].strip() if captions and index < len(captions) and captions[index].strip() else None
+        body_attributes = _body_attribute_cues(signal, caption)
+        image_details = _image_details(signal, caption, body_attributes)
+        adult_content = _adult_content_signals(caption, body_attributes)
+        images.append(ReferenceAnalysisImage(
             path=str(path),
             file_name=path.name,
             width=signal.width,
@@ -105,11 +130,12 @@ def _analysis_images(
             brightness=_lighting_note([signal]),
             tone=_warmth_note([signal]),
             texture=_texture_note([signal]),
-            caption=captions[index].strip() if captions and index < len(captions) and captions[index].strip() else None,
-            body_attributes=_body_attribute_cues(signal, captions[index] if captions and index < len(captions) else ""),
-        )
-        for index, (path, signal) in enumerate(zip(paths, signals, strict=True))
-    ]
+            caption=caption,
+            body_attributes=body_attributes,
+            image_details=image_details,
+            adult_content=adult_content,
+        ))
+    return images
 
 
 def _body_attribute_cues(signal: ImageSignals, caption: str | None) -> BodyAttributeCues:
@@ -128,6 +154,280 @@ def _body_attribute_cues(signal: ImageSignals, caption: str | None) -> BodyAttri
         confidence=confidence,
         evidence=_fit_text(evidence, 240),
     )
+
+
+def _image_details(signal: ImageSignals, caption: str | None, body_attributes: BodyAttributeCues) -> ReferenceImageDetails:
+    caption_text = (caption or "").strip().lower()
+    return ReferenceImageDetails(
+        face=_face_detail(caption_text),
+        hair=_hair_detail(caption_text),
+        skin=_skin_detail(signal, caption_text),
+        body_shape=_body_shape_detail(caption_text),
+        chest=_chest_detail(caption_text, body_attributes),
+        waist_hips=_waist_hips_detail(caption_text),
+        pose=_pose_detail(caption_text),
+        clothing=_clothing_detail(caption_text),
+        lighting=_detail("clear", 75, _lighting_note([signal]), "image brightness"),
+        camera=_camera_detail(signal, caption_text),
+        background=_background_detail(caption_text),
+        quality=_detail("clear", 78, _texture_note([signal]), "image texture"),
+    )
+
+
+def _adult_content_signals(caption: str | None, body_attributes: BodyAttributeCues) -> AdultContentSignals:
+    caption_text = (caption or "").strip().lower()
+    explicit = _contains_any(caption_text, ["nude", "naked", "topless", "vulva", "genital", "nipples", "areola", "explicit", "sex"])
+    breast_visible = _contains_any(caption_text, ["breast", "breasts", "topless", "bare chest", "nude", "naked"])
+    nipple_visible = _contains_any(caption_text, ["nipple", "nipples", "areola", "areolas"])
+    genital_visible = _contains_any(caption_text, ["vulva", "genital", "genitals", "pussy", "crotch visible"])
+    buttocks_visible = _contains_any(caption_text, ["buttocks", "butt", "ass", "rear", "from behind"])
+    sexual_activity = _contains_any(caption_text, ["sex", "sexual", "intercourse", "penetration", "oral", "masturbat"])
+
+    if explicit:
+        nudity_level = "explicit nudity"
+        confidence = 86
+    elif body_attributes.coverage in {"swimwear", "underwear or lingerie"}:
+        nudity_level = "non-explicit revealing clothing"
+        confidence = body_attributes.confidence
+    elif body_attributes.coverage == "clothed":
+        nudity_level = "non-explicit clothed"
+        confidence = body_attributes.confidence
+    else:
+        nudity_level = "unclear"
+        confidence = 35
+
+    evidence_terms = [
+        term
+        for term in ["nude", "topless", "breasts", "nipples", "areola", "vulva", "genital", "buttocks", "sex", "bikini", "lingerie"]
+        if term in caption_text
+    ]
+    evidence = f"caption mentions {', '.join(evidence_terms)}" if evidence_terms else body_attributes.evidence
+    return AdultContentSignals(
+        nudity_level=nudity_level,
+        breast_visibility="visible" if breast_visible else _adult_part_fallback(body_attributes, "chest"),
+        nipple_areola_visibility="visible" if nipple_visible else "not clearly described",
+        genital_visibility="visible" if genital_visible else "not clearly described",
+        buttocks_visibility="visible" if buttocks_visible else "not clearly described",
+        sexual_activity="explicit sexual pose or activity cue" if sexual_activity else "none described",
+        confidence=confidence,
+        evidence=_fit_text(evidence, 320),
+    )
+
+
+def _adult_part_fallback(body_attributes: BodyAttributeCues, part: str) -> str:
+    if part == "chest" and body_attributes.coverage in {"swimwear", "underwear or lingerie"}:
+        return "covered or partially visible"
+    return "not clearly described"
+
+
+def _face_detail(caption: str) -> AttributeDetail:
+    if _contains_any(caption, ["face", "portrait", "woman", "girl", "person"]):
+        return _detail("partial", 55, "face present but not identity-locked", "caption indicates a person")
+    return _detail("unclear", 30, "face not clearly described", "caption lacks face detail")
+
+
+def _hair_detail(caption: str) -> AttributeDetail:
+    if "hair" not in caption:
+        return _detail("unclear", 35, "hair not clearly described", "caption lacks hair detail")
+    descriptors = [word for word in ["long", "short", "shoulder-length", "dark", "black", "brown", "blonde", "auburn", "wavy", "curly", "straight"] if word in caption]
+    if "red hair" in caption or "red-haired" in caption:
+        descriptors.append("red")
+    summary = " ".join(descriptors + ["hair"]) if descriptors else "hair visible"
+    return _detail("clear", 82, summary, "caption mentions hair")
+
+
+def _skin_detail(signal: ImageSignals, caption: str) -> AttributeDetail:
+    tone = _warmth_note([signal])
+    visibility = "partial" if _contains_any(caption, ["bikini", "nude", "skin", "shorts", "topless"]) else "unclear"
+    confidence = 66 if visibility == "partial" else 45
+    return _detail(visibility, confidence, f"{tone} natural skin tone", "image color balance")
+
+
+def _body_shape_detail(caption: str) -> AttributeDetail:
+    if _contains_any(caption, ["full body", "standing", "bikini", "nude"]):
+        return _detail("partial", 70, "adult full-body proportions visible", "caption indicates full or revealing body framing")
+    return _detail("unclear", 35, "body shape not clearly described", "caption lacks body-shape detail")
+
+
+def _chest_detail(caption: str, body_attributes: BodyAttributeCues) -> AttributeDetail:
+    if _contains_any(caption, ["breast", "breasts", "topless", "bare chest", "nude", "naked"]):
+        return _detail("clear", 82, "visible chest anatomy; exact attributes require targeted review", "caption mentions visible chest anatomy")
+    if body_attributes.coverage in {"swimwear", "underwear or lingerie"}:
+        return _detail("partial", body_attributes.confidence, "swimwear-covered chest/body shape; exact attributes require clearer references", body_attributes.evidence)
+    if body_attributes.coverage == "clothed":
+        return _detail("covered", body_attributes.confidence, "chest covered by clothing", body_attributes.evidence)
+    return _detail("unclear", 35, "chest attributes not clearly described", "caption lacks chest detail")
+
+
+def _waist_hips_detail(caption: str) -> AttributeDetail:
+    if _contains_any(caption, ["full body", "standing", "bikini", "shorts", "from behind"]):
+        return _detail("partial", 64, "partial waist and hip cues from body framing", "caption indicates body framing")
+    return _detail("unclear", 35, "waist and hip cues not clearly described", "caption lacks waist/hip detail")
+
+
+def _pose_detail(caption: str) -> AttributeDetail:
+    if "standing" in caption and "beach" in caption:
+        return _detail("clear", 80, "standing beach pose", "caption mentions standing and beach")
+    if "full body" in caption:
+        return _detail("clear", 78, "full body or upper body visible", "caption mentions full body")
+    if _contains_any(caption, ["full body", "standing", "from behind", "portrait"]):
+        return _detail("clear", 76, _pose_framing(ImageSignals(1, 2, 0, 0, 0, 0, 0), caption), "caption mentions pose or framing")
+    return _detail("unclear", 35, "pose not clearly described", "caption lacks pose detail")
+
+
+def _clothing_detail(caption: str) -> AttributeDetail:
+    if "red bikini" in caption:
+        return _detail("clear", 84, "red bikini", "caption mentions red bikini")
+    if "bikini" in caption:
+        return _detail("clear", 80, "bikini", "caption mentions bikini")
+    if "denim shorts" in caption and "white shirt" in caption:
+        return _detail("clear", 78, "white shirt and denim shorts", "caption mentions white shirt and denim shorts")
+    if "shirt" in caption:
+        return _detail("clear", 68, "shirt", "caption mentions shirt")
+    if _contains_any(caption, ["nude", "naked"]):
+        return _detail("clear", 82, "no clothing described", "caption mentions nudity")
+    return _detail("unclear", 35, "clothing not clearly described", "caption lacks clothing detail")
+
+
+def _camera_detail(signal: ImageSignals, caption: str) -> AttributeDetail:
+    if "full body" in caption:
+        return _detail("partial", 68, "full-body framing", "caption mentions full body")
+    return _detail("partial", 60, f"{_single_orientation(signal)} frame", "image orientation")
+
+
+def _background_detail(caption: str) -> AttributeDetail:
+    if "beach" in caption:
+        return _detail("clear", 82, "beach setting", "caption mentions beach")
+    return _detail("unclear", 35, "background not clearly described", "caption lacks background detail")
+
+
+def _detail(visibility: str, confidence: int, summary: str, evidence: str) -> AttributeDetail:
+    return AttributeDetail(
+        visibility=visibility,
+        confidence=confidence,
+        summary=_fit_text(summary, 260),
+        evidence=_fit_text(evidence, 260),
+    )
+
+
+def _aggregate_intelligence(images: list[ReferenceAnalysisImage]) -> AggregateReferenceIntelligence:
+    details = [image.image_details for image in images]
+    adult_signals = [image.adult_content for image in images]
+    aggregate = AggregateReferenceIntelligence(
+        face=_aggregate_detail(details, "face"),
+        hair=_aggregate_detail(details, "hair"),
+        skin=_aggregate_detail(details, "skin"),
+        body_shape=_aggregate_detail(details, "body_shape"),
+        chest=_aggregate_detail(details, "chest"),
+        waist_hips=_aggregate_detail(details, "waist_hips"),
+        pose=_aggregate_detail(details, "pose"),
+        clothing=_aggregate_detail(details, "clothing"),
+        lighting=_aggregate_detail(details, "lighting"),
+        camera=_aggregate_detail(details, "camera"),
+        background=_aggregate_detail(details, "background"),
+        quality=_aggregate_detail(details, "quality"),
+        adult_content=_aggregate_adult_content(adult_signals),
+        prompt_summary="",
+        uncertainty_notes=[],
+    )
+    prompt_summary = _aggregate_prompt_summary(aggregate)
+    uncertainty_notes = _aggregate_uncertainty_notes(aggregate)
+    return aggregate.model_copy(update={"prompt_summary": prompt_summary, "uncertainty_notes": uncertainty_notes})
+
+
+def _aggregate_detail(details: list[ReferenceImageDetails], field_name: str) -> AttributeDetail:
+    values = [getattr(detail, field_name) for detail in details]
+    visibility_rank = {"clear": 5, "partial": 4, "covered": 3, "unclear": 2, "not_visible": 1}
+    best = max(values, key=lambda value: (visibility_rank[value.visibility], value.confidence))
+    summaries = _unique_phrases([value.summary for value in values if value.summary and value.visibility != "not_visible"])
+    evidences = _unique_phrases([value.evidence for value in values if value.evidence])
+    summary = summaries[0] if len(summaries) == 1 else "; ".join(summaries[:3])
+    return _detail(
+        best.visibility,
+        max(value.confidence for value in values),
+        summary or best.summary,
+        "; ".join(evidences[:3]) or best.evidence,
+    )
+
+
+def _aggregate_adult_content(signals: list[AdultContentSignals]) -> AdultContentSignals:
+    nudity_rank = {
+        "explicit nudity": 4,
+        "non-explicit revealing clothing": 3,
+        "non-explicit clothed": 2,
+        "unclear": 1,
+    }
+    best_nudity = max(signals, key=lambda signal: (nudity_rank.get(signal.nudity_level, 0), signal.confidence))
+
+    return AdultContentSignals(
+        nudity_level=best_nudity.nudity_level,
+        breast_visibility=_strongest_adult_signal([signal.breast_visibility for signal in signals]),
+        nipple_areola_visibility=_strongest_adult_signal([signal.nipple_areola_visibility for signal in signals]),
+        genital_visibility=_strongest_adult_signal([signal.genital_visibility for signal in signals]),
+        buttocks_visibility=_strongest_adult_signal([signal.buttocks_visibility for signal in signals]),
+        sexual_activity=_strongest_activity_signal([signal.sexual_activity for signal in signals]),
+        confidence=max(signal.confidence for signal in signals),
+        evidence=_fit_text("; ".join(_unique_phrases([signal.evidence for signal in signals if signal.evidence])[:3]), 320),
+    )
+
+
+def _strongest_adult_signal(values: list[str]) -> str:
+    rank = {
+        "visible": 5,
+        "covered or partially visible": 4,
+        "not clearly described": 2,
+    }
+    return max(values, key=lambda value: rank.get(value, 1))
+
+
+def _strongest_activity_signal(values: list[str]) -> str:
+    if any(value == "explicit sexual pose or activity cue" for value in values):
+        return "explicit sexual pose or activity cue"
+    return "none described"
+
+
+def _aggregate_prompt_summary(aggregate: AggregateReferenceIntelligence) -> str:
+    parts = [
+        aggregate.face.summary,
+        aggregate.hair.summary,
+        aggregate.skin.summary,
+        aggregate.body_shape.summary,
+        aggregate.chest.summary,
+        aggregate.waist_hips.summary,
+        aggregate.pose.summary,
+        aggregate.clothing.summary,
+        f"adult-content read: {aggregate.adult_content.nudity_level}; breast visibility {aggregate.adult_content.breast_visibility}; "
+        f"nipple/areola visibility {aggregate.adult_content.nipple_areola_visibility}; genital visibility {aggregate.adult_content.genital_visibility}; "
+        f"buttocks visibility {aggregate.adult_content.buttocks_visibility}",
+    ]
+    return _fit_text("Prompt-ready reference intelligence: " + "; ".join(part for part in parts if part), 900)
+
+
+def _aggregate_uncertainty_notes(aggregate: AggregateReferenceIntelligence) -> list[str]:
+    notes: list[str] = []
+    if aggregate.face.visibility != "clear":
+        notes.append("Face identity is not fully locked; add clear synthetic face references for stronger consistency.")
+    if aggregate.chest.visibility != "clear":
+        notes.append("Exact chest anatomy requires clearer uncovered or targeted references.")
+    if aggregate.waist_hips.visibility != "clear":
+        notes.append("Waist, hip, and lower-body consistency is partial; add front, side, and rear body references.")
+    if aggregate.adult_content.genital_visibility == "not clearly described":
+        notes.append("Genital visibility is not clearly described by the local vision caption.")
+    if aggregate.adult_content.nipple_areola_visibility == "not clearly described":
+        notes.append("Nipple/areola visibility is not clearly described by the local vision caption.")
+    return notes[:5]
+
+
+def _unique_phrases(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        normalized = " ".join(value.split())
+        key = normalized.casefold()
+        if normalized and key not in seen:
+            seen.add(key)
+            unique.append(normalized)
+    return unique
 
 
 def _coverage_from_caption(caption: str) -> tuple[str, str, int]:

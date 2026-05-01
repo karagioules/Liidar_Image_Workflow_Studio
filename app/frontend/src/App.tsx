@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type {
   AdultAgeCategory,
+  AdultContentSignals,
+  AttributeDetail,
   CharacterProfile,
   DatasetScanReport,
   DatasetType,
@@ -961,6 +963,7 @@ function AnalysisProgress({ imageCount }: { imageCount: number }) {
 }
 
 function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisResponse }) {
+  const intelligence = analysis.aggregate_intelligence;
   return (
     <section className="analysis-panel">
       <div className="analysis-score">
@@ -968,6 +971,22 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
         <span>Consistency score</span>
       </div>
       <div className="analysis-body">
+        <section className="reference-intelligence">
+          <div>
+            <h3>Reference intelligence</h3>
+            <p>{intelligence.prompt_summary}</p>
+          </div>
+          <div className="intelligence-grid">
+            <AttributeCard label="Face lock" detail={intelligence.face} />
+            <AttributeCard label="Hair" detail={intelligence.hair} />
+            <AttributeCard label="Body shape" detail={intelligence.body_shape} />
+            <AttributeCard label="Chest" detail={intelligence.chest} />
+            <AttributeCard label="Waist and hips" detail={intelligence.waist_hips} />
+            <AttributeCard label="Pose" detail={intelligence.pose} />
+          </div>
+          <AdultSignalCard signals={intelligence.adult_content} />
+          {intelligence.uncertainty_notes.length ? <WarningList warnings={intelligence.uncertainty_notes} /> : null}
+        </section>
         <div className="analysis-image-grid">
           {analysis.analysis_images.map((image) => (
             <article className="analysis-image-card" key={image.path}>
@@ -979,6 +998,9 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
                 <dl className="body-cue-list">
                   <div><dt>Coverage</dt><dd>{image.body_attributes.coverage}</dd></div>
                   <div><dt>Chest visibility</dt><dd>{image.body_attributes.chest_visibility}</dd></div>
+                  <div><dt>Genital visibility</dt><dd>{image.adult_content.genital_visibility}</dd></div>
+                  <div><dt>Nipple/areola</dt><dd>{image.adult_content.nipple_areola_visibility}</dd></div>
+                  <div><dt>Buttocks visibility</dt><dd>{image.adult_content.buttocks_visibility}</dd></div>
                   <div><dt>Framing</dt><dd>{image.body_attributes.pose_framing}</dd></div>
                   <div><dt>Confidence</dt><dd>{image.body_attributes.confidence}%</dd></div>
                 </dl>
@@ -990,6 +1012,39 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
         {analysis.analysis_warnings.length ? <WarningList warnings={analysis.analysis_warnings} /> : null}
       </div>
     </section>
+  );
+}
+
+function AttributeCard({ label, detail }: { label: string; detail: AttributeDetail }) {
+  return (
+    <article className="attribute-card">
+      <div>
+        <strong>{label}</strong>
+        <span>{detail.visibility} · {detail.confidence}%</span>
+      </div>
+      <p>{detail.summary}</p>
+      <small>{detail.evidence}</small>
+    </article>
+  );
+}
+
+function AdultSignalCard({ signals }: { signals: AdultContentSignals }) {
+  return (
+    <article className="adult-signal-card">
+      <div>
+        <h4>Adult-content visibility</h4>
+        <span>{signals.confidence}% confidence</span>
+      </div>
+      <dl>
+        <div><dt>Nudity</dt><dd>{signals.nudity_level}</dd></div>
+        <div><dt>Breasts</dt><dd>{signals.breast_visibility}</dd></div>
+        <div><dt>Nipple/areola</dt><dd>{signals.nipple_areola_visibility}</dd></div>
+        <div><dt>Genitals</dt><dd>{signals.genital_visibility}</dd></div>
+        <div><dt>Buttocks</dt><dd>{signals.buttocks_visibility}</dd></div>
+        <div><dt>Sexual activity</dt><dd>{signals.sexual_activity}</dd></div>
+      </dl>
+      <p>{signals.evidence}</p>
+    </article>
   );
 }
 

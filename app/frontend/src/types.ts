@@ -4,6 +4,7 @@ export type QualityPreset = "fast" | "balanced" | "high" | "ultra";
 export type DatasetType = "body_part" | "body_shape" | "pose" | "style" | "fictional_face_identity";
 export type FacePolicy = "reject_faces" | "redact_faces" | "body_part_crops_only";
 export type SourceRights = "synthetic" | "owned" | "licensed" | "consented";
+export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | "unclear";
 
 export interface CharacterProfile {
   id: string;
@@ -43,12 +44,54 @@ export interface ReferenceAnalysisImage {
     confidence: number;
     evidence: string;
   };
+  image_details: ReferenceImageDetails;
+  adult_content: AdultContentSignals;
+}
+
+export interface AttributeDetail {
+  visibility: VisibilityLevel;
+  confidence: number;
+  summary: string;
+  evidence: string;
+}
+
+export interface ReferenceImageDetails {
+  face: AttributeDetail;
+  hair: AttributeDetail;
+  skin: AttributeDetail;
+  body_shape: AttributeDetail;
+  chest: AttributeDetail;
+  waist_hips: AttributeDetail;
+  pose: AttributeDetail;
+  clothing: AttributeDetail;
+  lighting: AttributeDetail;
+  camera: AttributeDetail;
+  background: AttributeDetail;
+  quality: AttributeDetail;
+}
+
+export interface AdultContentSignals {
+  nudity_level: string;
+  breast_visibility: string;
+  nipple_areola_visibility: string;
+  genital_visibility: string;
+  buttocks_visibility: string;
+  sexual_activity: string;
+  confidence: number;
+  evidence: string;
+}
+
+export interface AggregateReferenceIntelligence extends ReferenceImageDetails {
+  adult_content: AdultContentSignals;
+  prompt_summary: string;
+  uncertainty_notes: string[];
 }
 
 export interface ReferenceAnalysisResponse extends CharacterProfile {
   consistency_score: number;
   analysis_warnings: string[];
   analysis_images: ReferenceAnalysisImage[];
+  aggregate_intelligence: AggregateReferenceIntelligence;
 }
 
 export interface RuntimeStatus {

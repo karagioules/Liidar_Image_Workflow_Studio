@@ -253,6 +253,87 @@ def test_analyze_references_adds_body_attribute_cues_from_caption(tmp_path: Path
     assert "swimwear" in body["chest"]
 
 
+def test_analyze_references_returns_full_reference_intelligence_profile(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    front = source / "front.png"
+    back = source / "back.png"
+    Image.new("RGB", (900, 1400), color=(226, 202, 184)).save(front)
+    Image.new("RGB", (900, 1400), color=(210, 190, 174)).save(back)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: [
+        "adult woman standing on a beach with long dark wavy hair wearing a red bikini, full body view",
+        "adult woman from behind wearing denim shorts and a white shirt, long dark wavy hair, full body view",
+    ]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "marianna",
+            "display_name": "",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(front), str(back)],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    first_details = body["analysis_images"][0]["image_details"]
+    assert first_details["hair"]["visibility"] == "clear"
+    assert "dark wavy hair" in first_details["hair"]["summary"]
+    assert first_details["chest"]["visibility"] == "partial"
+    assert first_details["clothing"]["summary"] == "red bikini"
+    aggregate = body["aggregate_intelligence"]
+    assert aggregate["hair"]["visibility"] == "clear"
+    assert "long dark wavy hair" in aggregate["hair"]["summary"]
+    assert aggregate["chest"]["visibility"] == "partial"
+    assert "swimwear-covered" in aggregate["chest"]["summary"]
+    assert aggregate["pose"]["visibility"] == "clear"
+    assert "full body" in aggregate["pose"]["summary"]
+    assert "Prompt-ready" in aggregate["prompt_summary"]
+    assert aggregate["uncertainty_notes"]
+
+
+def test_analyze_references_flags_explicit_adult_content_clinically(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "AdultRefs"
+    source.mkdir(parents=True)
+    reference = source / "explicit.png"
+    Image.new("RGB", (900, 1400), color=(226, 202, 184)).save(reference)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: [
+        "adult nude woman with visible breasts, nipples, vulva, and buttocks in an explicit sexual pose"
+    ]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "adult-ref",
+            "display_name": "",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(reference)],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    adult = body["analysis_images"][0]["adult_content"]
+    assert adult["nudity_level"] == "explicit nudity"
+    assert adult["breast_visibility"] == "visible"
+    assert adult["nipple_areola_visibility"] == "visible"
+    assert adult["genital_visibility"] == "visible"
+    assert adult["buttocks_visibility"] == "visible"
+    assert adult["sexual_activity"] == "explicit sexual pose or activity cue"
+    assert body["aggregate_intelligence"]["adult_content"]["nudity_level"] == "explicit nudity"
+
+
 def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(tmp_path: Path) -> None:
     source = tmp_path / "Models" / "Marianna"
     source.mkdir(parents=True)
