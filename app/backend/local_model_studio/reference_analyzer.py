@@ -398,8 +398,9 @@ def _aggregate_intelligence(images: list[ReferenceAnalysisImage]) -> AggregateRe
         prompt_summary="",
         uncertainty_notes=[],
     )
+    aggregate = _upgrade_reference_pack_confidence(aggregate, images)
     prompt_summary = _aggregate_prompt_summary(aggregate)
-    uncertainty_notes = _aggregate_uncertainty_notes(aggregate)
+    uncertainty_notes = _aggregate_uncertainty_notes(aggregate, images)
     return aggregate.model_copy(update={"prompt_summary": prompt_summary, "uncertainty_notes": uncertainty_notes})
 
 
@@ -416,6 +417,72 @@ def _aggregate_detail(details: list[ReferenceImageDetails], field_name: str) -> 
         summary or best.summary,
         "; ".join(evidences[:3]) or best.evidence,
     )
+
+
+def _upgrade_reference_pack_confidence(
+    aggregate: AggregateReferenceIntelligence,
+    images: list[ReferenceAnalysisImage],
+) -> AggregateReferenceIntelligence:
+    reference_count = len(images)
+    face_signal_count = _count_images_with_signal(images, "face")
+    body_signal_count = _count_body_signal_images(images)
+    rear_signal_count = _count_text_matches(images, ["from behind", "rear", "back view", "backshot"])
+    side_signal_count = _count_text_matches(images, ["side", "side view", "profile"])
+    chest_signal_count = sum(
+        1
+        for image in images
+        if image.image_details.chest.visibility in {"clear", "partial", "covered"}
+        or image.adult_content.breast_visibility != "not clearly described"
+    )
+    tag_names = _aggregate_tag_name_set(aggregate)
+
+    updates: dict[str, AttributeDetail] = {}
+    if reference_count >= 4 and face_signal_count >= 3 and aggregate.face.visibility != "clear":
+        updates["face"] = _detail(
+            "clear",
+            max(aggregate.face.confidence, 78),
+            f"identity-ready fictional face reference set from {reference_count} images; preserve recurring facial structure and expression style",
+            "multiple selected references include face/person cues",
+        )
+
+    if reference_count >= 5 and body_signal_count >= 3 and aggregate.body_shape.visibility != "clear":
+        updates["body_shape"] = _detail(
+            "clear",
+            max(aggregate.body_shape.confidence, 78),
+            f"body consistency base built from {body_signal_count} usable body references",
+            "selected references include repeated full-body, pose, or body framing cues",
+        )
+
+    if reference_count >= 5 and body_signal_count >= 3 and aggregate.waist_hips.visibility != "clear":
+        evidence_bits = ["front/body framing cues"]
+        if rear_signal_count:
+            evidence_bits.append("rear-view cues")
+        if side_signal_count:
+            evidence_bits.append("side-view cues")
+        updates["waist_hips"] = _detail(
+            "clear",
+            max(aggregate.waist_hips.confidence, 76),
+            "waist, hip, and lower-body proportions have enough reference coverage for broad consistency",
+            "; ".join(evidence_bits),
+        )
+
+    if (
+        reference_count >= 4
+        and chest_signal_count >= 2
+        and aggregate.chest.visibility != "clear"
+        and (
+            aggregate.adult_content.breast_visibility != "not clearly described"
+            or _has_any_tag(tag_names, ["breasts", "large breasts", "medium breasts", "small breasts", "bikini", "bra", "underwear", "lingerie"])
+        )
+    ):
+        updates["chest"] = _detail(
+            "clear",
+            max(aggregate.chest.confidence, 76),
+            "chest/body-shape coverage is sufficient for broad character consistency; exact explicit anatomy can still be prompt-controlled",
+            "multiple references or local tags include chest, swimwear, underwear, or torso cues",
+        )
+
+    return aggregate.model_copy(update=updates) if updates else aggregate
 
 
 def _aggregate_adult_content(signals: list[AdultContentSignals]) -> AdultContentSignals:
@@ -473,7 +540,10 @@ def _aggregate_prompt_summary(aggregate: AggregateReferenceIntelligence) -> str:
     return _fit_text("Prompt-ready reference intelligence: " + "; ".join(part for part in parts if part), 900)
 
 
-def _aggregate_uncertainty_notes(aggregate: AggregateReferenceIntelligence) -> list[str]:
+def _aggregate_uncertainty_notes(
+    aggregate: AggregateReferenceIntelligence,
+    images: list[ReferenceAnalysisImage],
+) -> list[str]:
     notes: list[str] = []
     if aggregate.face.visibility != "clear":
         notes.append("Face identity is not fully locked; add clear synthetic face references for stronger consistency.")
@@ -481,10 +551,11 @@ def _aggregate_uncertainty_notes(aggregate: AggregateReferenceIntelligence) -> l
         notes.append("Exact chest anatomy requires clearer uncovered or targeted references.")
     if aggregate.waist_hips.visibility != "clear":
         notes.append("Waist, hip, and lower-body consistency is partial; add front, side, and rear body references.")
-    if aggregate.adult_content.genital_visibility == "not clearly described":
-        notes.append("Genital visibility is not clearly described by the local vision caption.")
-    if aggregate.adult_content.nipple_areola_visibility == "not clearly described":
-        notes.append("Nipple/areola visibility is not clearly described by the local vision caption.")
+    explicit_pack = any(image.adult_content.nudity_level == "explicit nudity" for image in images)
+    if explicit_pack and aggregate.adult_content.genital_visibility == "not clearly described":
+        notes.append("Explicit references were detected, but no clear genital signal was found; exact anatomy will rely on prompts or targeted references.")
+    if explicit_pack and aggregate.adult_content.nipple_areola_visibility == "not clearly described":
+        notes.append("Explicit references were detected, but no clear nipple/areola signal was found; exact anatomy will rely on prompts or targeted references.")
     return notes[:5]
 
 
@@ -508,6 +579,49 @@ def _aggregate_strong_tags(images: list[ReferenceAnalysisImage]) -> list[VisionT
             if current is None or tag.confidence > current.confidence:
                 best_by_name[tag.name] = tag
     return sorted(best_by_name.values(), key=lambda tag: tag.confidence, reverse=True)[:60]
+
+
+def _count_images_with_signal(images: list[ReferenceAnalysisImage], field_name: str) -> int:
+    return sum(
+        1
+        for image in images
+        if getattr(image.image_details, field_name).visibility in {"clear", "partial"}
+    )
+
+
+def _count_body_signal_images(images: list[ReferenceAnalysisImage]) -> int:
+    return sum(
+        1
+        for image in images
+        if image.image_details.body_shape.visibility in {"clear", "partial"}
+        or image.image_details.waist_hips.visibility in {"clear", "partial"}
+        or _contains_any(_image_reference_text(image), ["full body", "standing", "from behind", "bikini", "shorts", "underwear", "lingerie"])
+    )
+
+
+def _count_text_matches(images: list[ReferenceAnalysisImage], needles: list[str]) -> int:
+    return sum(1 for image in images if _contains_any(_image_reference_text(image), needles))
+
+
+def _aggregate_tag_name_set(aggregate: AggregateReferenceIntelligence) -> set[str]:
+    return {tag.name.casefold().replace("_", " ") for tag in aggregate.strong_tags}
+
+
+def _has_any_tag(tags: set[str], needles: list[str]) -> bool:
+    return any(needle in tags for needle in needles)
+
+
+def _image_reference_text(image: ReferenceAnalysisImage) -> str:
+    parts = [
+        image.caption or "",
+        image.body_attributes.coverage,
+        image.body_attributes.chest_visibility,
+        image.body_attributes.pose_framing,
+        image.body_attributes.evidence,
+        image.adult_content.evidence,
+        " ".join(tag.name for tag in image.vision_tags),
+    ]
+    return " ".join(parts).casefold().replace("_", " ")
 
 
 def _coverage_from_caption(caption: str) -> tuple[str, str, int]:
@@ -596,7 +710,7 @@ def _analysis_warnings(signals: list[ImageSignals], captions: list[str] | None) 
     if len(signals) < 3:
         warnings.append("Add 2-4 more references for stronger identity consistency.")
     orientations = {_single_orientation(signal) for signal in signals}
-    if len(orientations) > 1:
+    if len(orientations) > 1 and len(signals) < 6:
         warnings.append("References mix orientations; add more matching angles if you want tighter consistency.")
     if captions is None:
         warnings.append("Local vision captions were not used; analysis is based on image signals only.")

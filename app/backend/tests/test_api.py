@@ -40,7 +40,7 @@ class FakeTagReport:
     source: str = "wd tagger test"
 
     def reference_text(self) -> str:
-        return "wd tagger test rating explicit; local visual tags: " + ", ".join(tag.name for tag in self.tags)
+        return f"wd tagger test rating {self.rating}; local visual tags: " + ", ".join(tag.name for tag in self.tags)
 
 
 def test_profile_crud(tmp_path: Path) -> None:
@@ -330,6 +330,67 @@ def test_analyze_references_returns_full_reference_intelligence_profile(tmp_path
     assert "full body" in aggregate["pose"]["summary"]
     assert "Prompt-ready" in aggregate["prompt_summary"]
     assert aggregate["uncertainty_notes"]
+
+
+def test_analyze_references_treats_large_varied_pack_as_usable(tmp_path: Path) -> None:
+    source = tmp_path / "Models" / "Marianna"
+    source.mkdir(parents=True)
+    references = []
+    for index in range(8):
+        reference = source / f"marianna-{index}.png"
+        size = (900, 1400) if index % 2 == 0 else (1400, 900)
+        Image.new("RGB", size, color=(226, 202, 184)).save(reference)
+        references.append(reference)
+
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    app = client.app
+    app.state.captioner = lambda paths: [
+        "adult woman face with long dark wavy hair standing full body in a red bikini front view",
+        "adult woman face with long dark wavy hair standing full body in denim shorts rear back view",
+        "adult woman face with long dark wavy hair standing full body side view in a white shirt",
+        "adult woman face with long dark wavy hair standing on the beach in bikini",
+        "adult woman face with long dark wavy hair full body in casual shorts",
+        "adult woman face with long dark wavy hair standing from behind in denim shorts",
+        "adult woman face with long dark wavy hair full body front view",
+        "adult woman face with long dark wavy hair standing side view",
+    ]
+    app.state.tagger = lambda paths: [
+        FakeTagReport(
+            tags=[
+                FakeTag("long_hair", 0.88),
+                FakeTag("black_hair", 0.82),
+                FakeTag("bikini", 0.81),
+                FakeTag("breasts", 0.77),
+                FakeTag("from_behind", 0.64 if index in {1, 5} else 0.2),
+            ],
+            rating="questionable",
+            rating_confidence=0.72,
+        )
+        for index, _ in enumerate(paths)
+    ]
+
+    response = client.post(
+        "/api/characters/analyze-references",
+        json={
+            "id": "marianna",
+            "display_name": "Marianna",
+            "age_category": "adult_25_plus",
+            "reference_images": [str(reference) for reference in references],
+            "lora_files": [],
+            "seed_strategy": "vary",
+            "locked_seed": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    aggregate = body["aggregate_intelligence"]
+    assert aggregate["face"]["visibility"] == "clear"
+    assert aggregate["body_shape"]["visibility"] == "clear"
+    assert aggregate["waist_hips"]["visibility"] == "clear"
+    assert aggregate["chest"]["visibility"] == "clear"
+    assert aggregate["uncertainty_notes"] == []
+    assert not any("mix orientations" in warning for warning in body["analysis_warnings"])
 
 
 def test_analyze_references_flags_explicit_adult_content_clinically(tmp_path: Path) -> None:

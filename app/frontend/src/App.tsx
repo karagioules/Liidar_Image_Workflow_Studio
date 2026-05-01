@@ -1023,10 +1023,15 @@ function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisRespo
 
       {intelligence.uncertainty_notes.length ? (
         <section className="analysis-section analysis-warnings">
-          <SectionHeading eyebrow="Needs better references" title="Uncertainty notes" />
+          <SectionHeading eyebrow="Reference coverage" title="Signals to improve" />
           <WarningList warnings={intelligence.uncertainty_notes} />
         </section>
-      ) : null}
+      ) : (
+        <section className="analysis-section analysis-ready">
+          <SectionHeading eyebrow="Reference coverage" title="Pack looks usable" />
+          <p>The selected references provide enough signal for this character blueprint. Add targeted references only when you want to lock a very specific detail.</p>
+        </section>
+      )}
 
       <details className="image-review-section" open>
         <summary>

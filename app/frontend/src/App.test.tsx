@@ -392,7 +392,8 @@ describe("App", () => {
     expect(screen.getByText("Reference blueprint")).toBeInTheDocument();
     expect(screen.getByText("What should stay consistent")).toBeInTheDocument();
     expect(screen.getAllByText("long dark wavy hair").length).toBeGreaterThan(0);
-    expect(screen.getByText("Needs better references")).toBeInTheDocument();
+    expect(screen.getByText("Reference coverage")).toBeInTheDocument();
+    expect(screen.getByText("Signals to improve")).toBeInTheDocument();
     expect(screen.getByText("swimwear")).toBeInTheDocument();
     expect(screen.getByText("covered by swimwear or clothing")).toBeInTheDocument();
     expect(screen.getByText("Add 2-4 more references for stronger identity consistency.")).toBeInTheDocument();
