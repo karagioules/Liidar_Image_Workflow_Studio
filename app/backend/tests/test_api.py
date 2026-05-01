@@ -7,6 +7,7 @@ import local_model_studio.main as main_module
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from local_model_studio.local_image_tagger import _preferred_providers
 from local_model_studio.main import create_app
 from local_model_studio.paths import WorkspacePaths
 
@@ -396,6 +397,14 @@ def test_analyze_references_uses_local_tagger_for_stronger_body_signals(tmp_path
     assert adult["buttocks_visibility"] == "visible"
     assert body["analysis_images"][0]["vision_tags"][0]["name"] == "rating: explicit"
     assert any(tag["name"] == "nude" for tag in body["aggregate_intelligence"]["strong_tags"])
+
+
+def test_local_tagger_prefers_directml_provider_when_available() -> None:
+    assert _preferred_providers(["DmlExecutionProvider", "CPUExecutionProvider"], "auto") == [
+        "DmlExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+    assert _preferred_providers(["DmlExecutionProvider", "CPUExecutionProvider"], "cpu") == ["CPUExecutionProvider"]
 
 
 def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(tmp_path: Path) -> None:

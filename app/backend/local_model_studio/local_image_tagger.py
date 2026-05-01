@@ -89,13 +89,16 @@ class LocalImageTagger:
         model_id: str = DEFAULT_TAGGER_MODEL,
         cache_dir: Path | None = None,
         threshold: float = TAG_THRESHOLD,
+        provider_preference: str = "auto",
     ) -> None:
         self.model_id = model_id
         self.cache_dir = cache_dir
         self.threshold = threshold
+        self.provider_preference = provider_preference
         self._session = None
         self._input_name = ""
         self._input_size = 448
+        self._active_provider = "unknown"
         self._tags: list[_ModelTag] = []
 
     def __call__(self, image_paths: Iterable[Path]) -> list[ImageTagReport]:
@@ -118,8 +121,13 @@ class LocalImageTagger:
         model_path = hf_hub_download(self.model_id, TAGGER_MODEL_FILE, **kwargs)
         tags_path = hf_hub_download(self.model_id, TAGGER_TAGS_FILE, **kwargs)
         self._tags = _load_tags(Path(tags_path))
-        providers = ["CPUExecutionProvider"]
-        self._session = ort.InferenceSession(model_path, providers=providers)
+        providers = _preferred_providers(ort.get_available_providers(), self.provider_preference)
+        session_options = ort.SessionOptions()
+        if "DmlExecutionProvider" in providers:
+            session_options.enable_mem_pattern = False
+            session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        self._session = ort.InferenceSession(model_path, sess_options=session_options, providers=providers)
+        self._active_provider = self._session.get_providers()[0]
         input_meta = self._session.get_inputs()[0]
         self._input_name = input_meta.name
         shape = input_meta.shape
@@ -149,7 +157,7 @@ class LocalImageTagger:
             tags=reference_tags[:80],
             rating=best_rating.name.replace("rating:", ""),
             rating_confidence=best_rating.confidence,
-            source=f"wd tagger {self.model_id}",
+            source=f"wd tagger {self.model_id} via {self._active_provider}",
         )
 
 
@@ -157,8 +165,23 @@ def local_tagger_from_workspace(workspace_root: Path) -> LocalImageTagger:
     model_id = os.environ.get("LIIDAR_TAGGER_MODEL", DEFAULT_TAGGER_MODEL)
     cache_dir = Path(os.environ.get("LIIDAR_TAGGER_CACHE", workspace_root / "models" / "tagger-cache"))
     threshold = float(os.environ.get("LIIDAR_TAGGER_THRESHOLD", str(TAG_THRESHOLD)))
+    provider_preference = os.environ.get("LIIDAR_TAGGER_PROVIDER", "auto")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return LocalImageTagger(model_id=model_id, cache_dir=cache_dir, threshold=threshold)
+    return LocalImageTagger(model_id=model_id, cache_dir=cache_dir, threshold=threshold, provider_preference=provider_preference)
+
+
+def _preferred_providers(available_providers: list[str], preference: str) -> list[str]:
+    normalized = preference.strip().casefold()
+    if normalized == "cpu":
+        return ["CPUExecutionProvider"]
+    providers: list[str] = []
+    if normalized in {"auto", "gpu", "directml", "dml"} and "DmlExecutionProvider" in available_providers:
+        providers.append("DmlExecutionProvider")
+    if "CPUExecutionProvider" in available_providers:
+        providers.append("CPUExecutionProvider")
+    if not providers:
+        providers = available_providers
+    return providers
 
 
 def _load_tags(tags_path: Path) -> list[_ModelTag]:
