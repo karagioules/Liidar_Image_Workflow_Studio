@@ -965,63 +965,114 @@ function AnalysisProgress({ imageCount }: { imageCount: number }) {
 
 function ReferenceAnalysisPanel({ analysis }: { analysis: ReferenceAnalysisResponse }) {
   const intelligence = analysis.aggregate_intelligence;
+  const topTags = intelligence.strong_tags.slice(0, 14);
   return (
-    <section className="analysis-panel">
-      <div className="analysis-score">
-        <strong>{analysis.consistency_score}</strong>
-        <span>Consistency score</span>
+    <section className="analysis-dashboard">
+      <div className="analysis-dashboard-header">
+        <div className="score-orb">
+          <strong>{analysis.consistency_score}</strong>
+          <span>Consistency</span>
+        </div>
+        <div className="analysis-title-block">
+          <span>Character analysis</span>
+          <h3>Reference blueprint</h3>
+          <p>{intelligence.prompt_summary}</p>
+        </div>
+        <div className="analysis-kpis">
+          <Metric label="References" value={analysis.analysis_images.length} />
+          <Metric label="Adult read" value={intelligence.adult_content.nudity_level} />
+          <Metric label="Signal confidence" value={`${intelligence.adult_content.confidence}%`} />
+        </div>
       </div>
-      <div className="analysis-body">
-        <section className="reference-intelligence">
-          <div>
-            <h3>Reference intelligence</h3>
-            <p>{intelligence.prompt_summary}</p>
-          </div>
+
+      <div className="analysis-section-grid">
+        <section className="analysis-section">
+          <SectionHeading eyebrow="Identity base" title="What should stay consistent" />
           <div className="intelligence-grid">
             <AttributeCard label="Face lock" detail={intelligence.face} />
             <AttributeCard label="Hair" detail={intelligence.hair} />
             <AttributeCard label="Body shape" detail={intelligence.body_shape} />
-            <AttributeCard label="Chest" detail={intelligence.chest} />
             <AttributeCard label="Waist and hips" detail={intelligence.waist_hips} />
-            <AttributeCard label="Pose" detail={intelligence.pose} />
           </div>
-          <AdultSignalCard signals={intelligence.adult_content} />
-          {intelligence.strong_tags.length ? <VisionTagCloud tags={intelligence.strong_tags} /> : null}
-          {intelligence.uncertainty_notes.length ? <WarningList warnings={intelligence.uncertainty_notes} /> : null}
         </section>
+
+        <section className="analysis-section">
+          <SectionHeading eyebrow="Body visibility" title="Adult-content signals" />
+          <AdultSignalCard signals={intelligence.adult_content} />
+        </section>
+      </div>
+
+      <section className="analysis-section">
+        <SectionHeading eyebrow="Local tagger" title="Strongest detected tags" />
+        {topTags.length ? <VisionTagCloud tags={topTags} /> : <p className="empty-analysis-note">No strong local tags reported.</p>}
+      </section>
+
+      {intelligence.uncertainty_notes.length ? (
+        <section className="analysis-section analysis-warnings">
+          <SectionHeading eyebrow="Needs better references" title="Uncertainty notes" />
+          <WarningList warnings={intelligence.uncertainty_notes} />
+        </section>
+      ) : null}
+
+      <details className="image-review-section" open>
+        <summary>
+          <span>Image-by-image review</span>
+          <strong>{analysis.analysis_images.length} references</strong>
+        </summary>
         <div className="analysis-image-grid">
           {analysis.analysis_images.map((image) => (
             <article className="analysis-image-card" key={image.path}>
-              <img src={api.thumbnailUrl(image.path)} alt="" />
-              <div>
-                <strong>{image.file_name}</strong>
-                <span>{image.width} x {image.height} · {image.orientation}</span>
-                {image.caption ? <p>{image.caption}</p> : null}
-                <dl className="body-cue-list">
-                  <div><dt>Coverage</dt><dd>{image.body_attributes.coverage}</dd></div>
-                  <div><dt>Chest visibility</dt><dd>{image.body_attributes.chest_visibility}</dd></div>
-                  <div><dt>Genital visibility</dt><dd>{image.adult_content.genital_visibility}</dd></div>
-                  <div><dt>Nipple/areola</dt><dd>{image.adult_content.nipple_areola_visibility}</dd></div>
-                  <div><dt>Buttocks visibility</dt><dd>{image.adult_content.buttocks_visibility}</dd></div>
-                  <div><dt>Framing</dt><dd>{image.body_attributes.pose_framing}</dd></div>
-                  <div><dt>Confidence</dt><dd>{image.body_attributes.confidence}%</dd></div>
-                </dl>
-                {image.vision_tags.length ? <VisionTagCloud tags={image.vision_tags.slice(0, 12)} compact /> : null}
-                <p className="cue-evidence">{image.body_attributes.evidence}</p>
+              <div className="analysis-image-header">
+                <img src={api.thumbnailUrl(image.path)} alt="" />
+                <div>
+                  <strong>{image.file_name}</strong>
+                  <span>{image.width} x {image.height} · {image.orientation}</span>
+                </div>
               </div>
+              {image.caption ? <p className="image-caption">{image.caption}</p> : null}
+              <div className="image-signal-list">
+                <SignalPill label="Coverage" value={image.body_attributes.coverage} />
+                <SignalPill label="Chest" value={image.body_attributes.chest_visibility} />
+                <SignalPill label="Genitals" value={image.adult_content.genital_visibility} />
+                <SignalPill label="Framing" value={image.body_attributes.pose_framing} />
+                <SignalPill label="Confidence" value={`${image.body_attributes.confidence}%`} />
+              </div>
+              {image.vision_tags.length ? <VisionTagCloud tags={image.vision_tags.slice(0, 8)} compact /> : null}
+              <p className="cue-evidence">{image.body_attributes.evidence}</p>
             </article>
           ))}
         </div>
+      </details>
+
+      <div className="analysis-body">
         {analysis.analysis_warnings.length ? <WarningList warnings={analysis.analysis_warnings} /> : null}
       </div>
     </section>
   );
 }
 
+function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="section-heading">
+      <span>{eyebrow}</span>
+      <h4>{title}</h4>
+    </div>
+  );
+}
+
+function SignalPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="signal-pill">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function VisionTagCloud({ tags, compact = false }: { tags: VisionTag[]; compact?: boolean }) {
   return (
     <div className={compact ? "vision-tag-cloud compact" : "vision-tag-cloud"}>
-      {tags.slice(0, compact ? 12 : 24).map((tag) => (
+      {tags.slice(0, compact ? 8 : 14).map((tag) => (
         <span key={`${tag.name}-${tag.confidence}`} title={tag.source}>
           {tag.name} <strong>{tag.confidence}%</strong>
         </span>
