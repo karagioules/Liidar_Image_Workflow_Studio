@@ -13,6 +13,7 @@ from local_model_studio.schemas import DatasetPrepResponse, DatasetPrepScanMode,
 DatasetType = Literal["body_part", "body_shape", "pose", "style", "fictional_face_identity"]
 FacePolicy = Literal["reject_faces", "redact_faces", "body_part_crops_only"]
 SourceRights = Literal["synthetic", "owned", "licensed", "consented"]
+TrainingRunState = Literal["queued", "running", "cancelled", "completed", "failed"]
 
 
 class DatasetScanRequest(BaseModel):
@@ -92,6 +93,26 @@ class TrainingJobConfig(BaseModel):
     accepted_image_count: int = Field(gt=0)
     completed_lora_path: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class TrainingRunStartRequest(BaseModel):
+    trainer_entrypoint: str = Field(default="tools/train_global_lora.ps1", min_length=1)
+
+
+class TrainingRunStatus(BaseModel):
+    run_id: str
+    job_id: str
+    status: TrainingRunState
+    trainer_entrypoint: str
+    config_path: str
+    output_lora_path: str | None = None
+    process_id: int | None = None
+    exit_code: int | None = None
+    log_path: str | None = None
+    tail: list[str] = Field(default_factory=list)
+    error: str | None = None
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

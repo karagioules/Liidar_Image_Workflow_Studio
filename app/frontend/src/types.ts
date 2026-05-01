@@ -8,6 +8,7 @@ export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | 
 export type DatasetPrepTarget = "chest_detail" | "upper_torso" | "full_body_context";
 export type DatasetPrepScanMode = "local" | "claude" | "off";
 export type DatasetPrepJobState = "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
+export type TrainingRunState = "queued" | "running" | "cancelled" | "completed" | "failed";
 
 export interface CharacterProfile {
   id: string;
@@ -299,6 +300,22 @@ export interface TrainingJobConfig extends TrainingConfigRequest {
   accepted_image_count: number;
   completed_lora_path: string | null;
   created_at?: string;
+  updated_at?: string;
+}
+
+export interface TrainingRunStatus {
+  run_id: string;
+  job_id: string;
+  status: TrainingRunState;
+  trainer_entrypoint: string;
+  config_path: string;
+  output_lora_path: string | null;
+  process_id: number | null;
+  exit_code: number | null;
+  log_path: string | null;
+  tail: string[];
+  error: string | null;
+  started_at?: string;
   updated_at?: string;
 }
 

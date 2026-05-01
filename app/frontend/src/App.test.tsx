@@ -272,6 +272,10 @@ describe("App", () => {
           return jsonResponse([]);
         }
 
+        if (url.endsWith("/api/training/runs") && method === "GET") {
+          return jsonResponse([]);
+        }
+
         if (url.endsWith("/api/learning/global-job") && method === "POST") {
           return jsonResponse({
             prep: {
@@ -309,6 +313,38 @@ describe("App", () => {
             },
             version: 1,
             warnings: ["Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it."]
+          });
+        }
+
+        if (url.endsWith("/api/training/learn-job-1/runs") && method === "POST") {
+          return jsonResponse({
+            run_id: "run-1",
+            job_id: "learn-job-1",
+            status: "running",
+            trainer_entrypoint: "tools/train_global_lora.ps1",
+            config_path: "H:\\studio\\config\\training\\learn-job-1.json",
+            output_lora_path: "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
+            process_id: 4242,
+            exit_code: null,
+            log_path: "H:\\studio\\logs\\training-run-1.log",
+            tail: ["Starting training command:"],
+            error: null
+          });
+        }
+
+        if (url.endsWith("/api/training/runs/run-1") && method === "GET") {
+          return jsonResponse({
+            run_id: "run-1",
+            job_id: "learn-job-1",
+            status: "completed",
+            trainer_entrypoint: "tools/train_global_lora.ps1",
+            config_path: "H:\\studio\\config\\training\\learn-job-1.json",
+            output_lora_path: "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
+            process_id: 4242,
+            exit_code: 0,
+            log_path: "H:\\studio\\logs\\training-run-1.log",
+            tail: ["Starting training command:", "wrote global_body_pack_v001.safetensors"],
+            error: null
           });
         }
 
@@ -689,5 +725,21 @@ describe("App", () => {
     expect(await screen.findByText(/global_body_pack_v001 is ready for trainer launch/i)).toBeInTheDocument();
     expect(screen.getByText("H:\\Desktop\\Liidar_Dataset_Crops\\learn-1")).toBeInTheDocument();
     expect(screen.getByText("Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it.")).toBeInTheDocument();
+  });
+
+  it("starts and monitors a local global training run", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Training" }));
+    await user.click(screen.getByRole("button", { name: /select folder/i }));
+    await user.click(screen.getByRole("button", { name: /build global learning job/i }));
+    await screen.findByText(/global_body_pack_v001 is ready for trainer launch/i);
+
+    await user.click(screen.getByRole("button", { name: /start training now/i }));
+
+    expect(await screen.findByText("Training started for global_body_pack_v001.")).toBeInTheDocument();
+    expect(screen.getByText("PID 4242")).toBeInTheDocument();
+    expect(screen.getAllByText("H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors").length).toBeGreaterThan(0);
   });
 });

@@ -42,6 +42,7 @@ from local_model_studio.schemas import (
     SystemLiveMetrics,
 )
 from local_model_studio.training_config import build_training_config, check_trainer_status
+from local_model_studio.training_runner import TrainingRunManager
 from local_model_studio.training_schemas import (
     DatasetScanReport,
     DatasetScanRequest,
@@ -50,6 +51,8 @@ from local_model_studio.training_schemas import (
     TrainerStatus,
     TrainingConfigRequest,
     TrainingJobConfig,
+    TrainingRunStartRequest,
+    TrainingRunStatus,
 )
 from local_model_studio.training_store import TrainingStore
 from local_model_studio.workflow_templates import render_sdxl_workflow
@@ -74,6 +77,7 @@ def create_app(
     workspace_paths = paths or WorkspacePaths(default_workspace_root())
     profiles = ProfileStore(workspace_paths)
     training = TrainingStore(workspace_paths)
+    training_runs = TrainingRunManager(workspace_paths, training)
     api_keys = ApiKeyStore(workspace_paths.root)
     prep_jobs = DatasetPrepJobManager()
     comfy = comfy_client or ComfyClient()
@@ -255,6 +259,10 @@ def create_app(
     def list_training_jobs() -> list[TrainingJobConfig]:
         return training.list()
 
+    @app.get("/api/training/runs", response_model=list[TrainingRunStatus])
+    def list_training_runs() -> list[TrainingRunStatus]:
+        return training_runs.list()
+
     @app.post("/api/learning/global-job", response_model=GlobalLearningResponse)
     def create_learning_job(request: GlobalLearningRequest) -> GlobalLearningResponse:
         try:
@@ -309,6 +317,31 @@ def create_app(
     ) -> TrainerStatus:
         resolved_config_path = config_path or str(workspace_paths.training_dir)
         return check_trainer_status(trainer_entrypoint, resolved_config_path)
+
+    @app.post("/api/training/{job_id}/runs", response_model=TrainingRunStatus)
+    def start_training_run(job_id: str, payload: TrainingRunStartRequest) -> TrainingRunStatus:
+        try:
+            return training_runs.start(job_id, payload.trainer_entrypoint)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Training job not found.") from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/training/runs/{run_id}", response_model=TrainingRunStatus)
+    def get_training_run(run_id: str) -> TrainingRunStatus:
+        try:
+            return training_runs.get(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/training/runs/{run_id}/cancel", response_model=TrainingRunStatus)
+    def cancel_training_run(run_id: str) -> TrainingRunStatus:
+        try:
+            return training_runs.cancel(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/api/training/{job_id}/register-lora", response_model=TrainingJobConfig)
     def register_lora(job_id: str, payload: RegisterLoraPayload) -> TrainingJobConfig:

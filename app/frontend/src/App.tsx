@@ -24,6 +24,7 @@ import type {
   SystemLiveMetrics,
   TrainerStatus,
   TrainingJobConfig,
+  TrainingRunStatus,
   VisionTag
 } from "./types";
 
@@ -157,6 +158,10 @@ function packNameFromDataset(name: string, type: DatasetType) {
   return base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "global_improvement_pack";
 }
 
+function upsertTrainingRun(runs: TrainingRunStatus[], run: TrainingRunStatus) {
+  return [...runs.filter((item) => item.run_id !== run.run_id), run];
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>("runtime");
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -186,9 +191,12 @@ function App() {
   const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("balanced");
   const [trainingJob, setTrainingJob] = useState<TrainingJobConfig | null>(null);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJobConfig[]>([]);
+  const [trainingRuns, setTrainingRuns] = useState<TrainingRunStatus[]>([]);
+  const [trainingRun, setTrainingRun] = useState<TrainingRunStatus | null>(null);
+  const [isTrainingRunning, setIsTrainingRunning] = useState(false);
   const [learningJob, setLearningJob] = useState<GlobalLearningResponse | null>(null);
   const [isLearning, setIsLearning] = useState(false);
-  const [trainerEntrypoint, setTrainerEntrypoint] = useState("train_network.py");
+  const [trainerEntrypoint, setTrainerEntrypoint] = useState("tools/train_global_lora.ps1");
   const [trainerConfigPath, setTrainerConfigPath] = useState("");
   const [trainerStatus, setTrainerStatus] = useState<TrainerStatus | null>(null);
   const [prepSourceFolder, setPrepSourceFolder] = useState("");
@@ -281,6 +289,45 @@ function App() {
     };
   }, [prepJob]);
 
+  useEffect(() => {
+    if (!trainingRun || !["queued", "running"].includes(trainingRun.status)) {
+      return;
+    }
+    let cancelled = false;
+    const intervalId = window.setInterval(async () => {
+      try {
+        const status = await api.trainingRun(trainingRun.run_id);
+        if (cancelled) {
+          return;
+        }
+        setTrainingRun(status);
+        setTrainingRuns((current) => upsertTrainingRun(current, status));
+        if (!["queued", "running"].includes(status.status)) {
+          setIsTrainingRunning(false);
+          if (status.status === "completed") {
+            setMessage("Global training completed and the new pack is active for future generations.");
+            setTrainingJobs(await api.trainingJobs());
+          }
+          if (status.status === "cancelled") {
+            setMessage("Training run cancelled.");
+          }
+          if (status.status === "failed") {
+            setError(status.error ?? "Training run failed. Check the log tail below.");
+          }
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setIsTrainingRunning(false);
+          setError(caught instanceof Error ? caught.message : "Unable to read training progress.");
+        }
+      }
+    }, 1200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [trainingRun]);
+
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? characters[0],
     [characters, selectedCharacterId]
@@ -289,12 +336,30 @@ function App() {
   async function loadInitialData() {
     try {
       setError("");
-      const [runtimeStatus, profiles, keyStatus, jobs] = await Promise.all([api.runtime(), api.characters(), api.anthropicKeyStatus(), api.trainingJobs()]);
+      const [runtimeStatus, profiles, keyStatus, jobs, runs] = await Promise.all([
+        api.runtime(),
+        api.characters(),
+        api.anthropicKeyStatus(),
+        api.trainingJobs(),
+        api.trainingRuns()
+      ]);
       setRuntime(runtimeStatus);
       setCharacters(profiles);
       setAnthropicKeySaved(keyStatus.saved);
       setAnthropicModel(keyStatus.model);
       setTrainingJobs(jobs);
+      setTrainingRuns(runs);
+      const activeRun = [...runs].reverse().find((run) => ["queued", "running"].includes(run.status)) ?? runs[runs.length - 1] ?? null;
+      setTrainingRun(activeRun);
+      setIsTrainingRunning(Boolean(activeRun && ["queued", "running"].includes(activeRun.status)));
+      const latestPendingJob = [...jobs].reverse().find((job) => job.global_pack && !job.completed_lora_path) ?? null;
+      if (!trainingJob && latestPendingJob) {
+        setTrainingJob(latestPendingJob);
+        setTrainerConfigPath(latestPendingJob.config_path ?? "");
+        setDatasetPath(latestPendingJob.dataset_path);
+        setOutputDir(latestPendingJob.output_dir);
+        setLoraName(latestPendingJob.lora_name);
+      }
       if (profiles[0]) {
         setSelectedCharacterId(profiles[0].id);
         setEditingCharacter(profiles[0]);
@@ -542,6 +607,40 @@ function App() {
     }
   }
 
+  async function startTrainingRun() {
+    if (!trainingJob) {
+      return;
+    }
+    try {
+      setError("");
+      setMessage("");
+      setIsTrainingRunning(true);
+      const status = await api.startTrainingRun(trainingJob.job_id, trainerEntrypoint);
+      setTrainingRun(status);
+      setTrainingRuns((current) => upsertTrainingRun(current, status));
+      setMessage(`Training started for ${trainingJob.lora_name}.`);
+    } catch (caught) {
+      setIsTrainingRunning(false);
+      setError(caught instanceof Error ? caught.message : "Unable to start training.");
+    }
+  }
+
+  async function cancelTrainingRun() {
+    if (!trainingRun) {
+      return;
+    }
+    try {
+      setError("");
+      const status = await api.cancelTrainingRun(trainingRun.run_id);
+      setTrainingRun(status);
+      setTrainingRuns((current) => upsertTrainingRun(current, status));
+      setIsTrainingRunning(false);
+      setMessage("Cancelling training run...");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to cancel training.");
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -637,6 +736,9 @@ function App() {
             trainerStatus={trainerStatus}
             trainingJob={trainingJob}
             trainingJobs={trainingJobs}
+            trainingRun={trainingRun}
+            trainingRuns={trainingRuns}
+            isTrainingRunning={isTrainingRunning}
             learningJob={learningJob}
             isLearning={isLearning}
             onDatasetNameChange={setDatasetName}
@@ -655,6 +757,8 @@ function App() {
             onCreateGlobalLearningJob={() => void createGlobalLearningJob()}
             onScan={scanDataset}
             onCreateConfig={createTrainingConfig}
+            onStartTraining={() => void startTrainingRun()}
+            onCancelTraining={() => void cancelTrainingRun()}
             onCheckStatus={checkTrainerStatus}
           />
         ) : null}
@@ -1186,6 +1290,9 @@ function TrainingPanel(props: {
   trainerStatus: TrainerStatus | null;
   trainingJob: TrainingJobConfig | null;
   trainingJobs: TrainingJobConfig[];
+  trainingRun: TrainingRunStatus | null;
+  trainingRuns: TrainingRunStatus[];
+  isTrainingRunning: boolean;
   learningJob: GlobalLearningResponse | null;
   isLearning: boolean;
   onDatasetNameChange: (value: string) => void;
@@ -1204,6 +1311,8 @@ function TrainingPanel(props: {
   onCreateGlobalLearningJob: () => void;
   onScan: () => void;
   onCreateConfig: () => void;
+  onStartTraining: () => void;
+  onCancelTraining: () => void;
   onCheckStatus: () => void;
 }) {
   const hasAcceptedImages = Boolean(props.scanReport && props.scanReport.accepted_count > 0);
@@ -1211,6 +1320,8 @@ function TrainingPanel(props: {
   const completedGlobalPacks = props.trainingJobs.filter((job) => job.global_pack && job.completed_lora_path);
   const pendingGlobalJobs = props.trainingJobs.filter((job) => job.global_pack && !job.completed_lora_path);
   const latestCompletedPack = completedGlobalPacks.length ? completedGlobalPacks[completedGlobalPacks.length - 1] : null;
+  const activeRun = props.trainingRun;
+  const runIsActive = Boolean(activeRun && ["queued", "running"].includes(activeRun.status));
 
   return (
     <section className="training-layout global-training">
@@ -1223,6 +1334,7 @@ function TrainingPanel(props: {
           <div className="active"><strong>1</strong><span>Choose data</span></div>
           <div className={props.scanReport ? "active" : ""}><strong>2</strong><span>Review scan</span></div>
           <div className={props.trainingJob ? "active" : ""}><strong>3</strong><span>Create global job</span></div>
+          <div className={latestCompletedPack ? "active" : ""}><strong>4</strong><span>Train and activate</span></div>
         </div>
       </div>
 
@@ -1262,13 +1374,39 @@ function TrainingPanel(props: {
 
       <div className="panel">
         <div className="panel-heading">
-          <h2>Global pack status</h2>
-          <p>Completed packs are automatically added to future generation recipes.</p>
+          <h2>Trainer control</h2>
+          <p>Starts the local LoRA trainer, shows live status, and activates completed packs automatically.</p>
         </div>
         <div className="count-grid">
           <Metric label="Ready packs" value={completedGlobalPacks.length} />
           <Metric label="Pending jobs" value={pendingGlobalJobs.length} />
           <Metric label="Latest ready" value={latestCompletedPack?.lora_name ?? "None yet"} />
+          <Metric label="Runs this session" value={props.trainingRuns.length} />
+        </div>
+        <div className="trainer-run-card">
+          <div className="trainer-run-main">
+            <div>
+              <span>Selected job</span>
+              <strong>{props.trainingJob?.lora_name ?? "Build a global learning job first"}</strong>
+            </div>
+            <div>
+              <span>Expected output</span>
+              <strong>{activeRun?.output_lora_path ?? (props.trainingJob ? `${props.trainingJob.output_dir}\\${props.trainingJob.lora_name}.safetensors` : "None yet")}</strong>
+            </div>
+          </div>
+          <div className="actions compact-actions">
+            <button type="button" className="primary-button" onClick={props.onStartTraining} disabled={!props.trainingJob || props.isTrainingRunning || runIsActive}>
+              <Play aria-hidden="true" />
+              {props.isTrainingRunning || runIsActive ? "Training running" : "Start training now"}
+            </button>
+            {runIsActive ? (
+              <button type="button" className="secondary-button danger-button" onClick={props.onCancelTraining}>
+                <X aria-hidden="true" />
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          {activeRun ? <TrainingRunPanel run={activeRun} /> : null}
         </div>
         {pendingGlobalJobs.length ? (
           <div className="job-list">
@@ -1427,6 +1565,41 @@ function TrainingPanel(props: {
           </>
         ) : null}
       </details>
+    </section>
+  );
+}
+
+function TrainingRunPanel({ run }: { run: TrainingRunStatus }) {
+  const isActive = ["queued", "running"].includes(run.status);
+  const statusLabel = labelize(run.status);
+
+  return (
+    <section className={`training-run-panel ${run.status}`} aria-live="polite">
+      <div className="training-run-header">
+        <div className="inline-status">
+          {run.status === "failed" ? <AlertTriangle aria-hidden="true" /> : <Activity aria-hidden="true" />}
+          <span>{statusLabel}</span>
+        </div>
+        <span>{run.process_id ? `PID ${run.process_id}` : "No process id yet"}</span>
+      </div>
+      {isActive ? (
+        <div className="progress-track" role="progressbar" aria-label="Training progress">
+          <span />
+        </div>
+      ) : null}
+      <div className="training-run-grid">
+        <Metric label="Config" value={run.config_path || "Missing"} />
+        <Metric label="Output" value={run.output_lora_path ?? "Pending"} />
+        <Metric label="Log" value={run.log_path ?? "Pending"} />
+        <Metric label="Exit code" value={run.exit_code ?? "Running"} />
+      </div>
+      {run.error ? <div className="inline-error">{run.error}</div> : null}
+      {run.tail.length ? (
+        <details className="log-tail" open={run.status === "failed"}>
+          <summary>Training log tail</summary>
+          <pre>{run.tail.join("\n")}</pre>
+        </details>
+      ) : null}
     </section>
   );
 }

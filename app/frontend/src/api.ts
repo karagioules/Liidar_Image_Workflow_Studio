@@ -20,7 +20,8 @@ import type {
   SystemLiveMetrics,
   TrainerStatus,
   TrainingConfigRequest,
-  TrainingJobConfig
+  TrainingJobConfig,
+  TrainingRunStatus
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -115,6 +116,7 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   trainingJobs: () => request<TrainingJobConfig[]>("/api/training/jobs"),
+  trainingRuns: () => request<TrainingRunStatus[]>("/api/training/runs"),
   createGlobalLearningJob: (payload: GlobalLearningRequest) =>
     request<GlobalLearningResponse>("/api/learning/global-job", {
       method: "POST",
@@ -139,6 +141,16 @@ export const api = {
     request<TrainingJobConfig>("/api/training/config", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  startTrainingRun: (jobId: string, trainerEntrypoint = "tools/train_global_lora.ps1") =>
+    request<TrainingRunStatus>(`/api/training/${jobId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ trainer_entrypoint: trainerEntrypoint })
+    }),
+  trainingRun: (runId: string) => request<TrainingRunStatus>(`/api/training/runs/${runId}`),
+  cancelTrainingRun: (runId: string) =>
+    request<TrainingRunStatus>(`/api/training/runs/${runId}/cancel`, {
+      method: "POST"
     }),
   trainingStatus: (trainerEntryPoint: string, configPath: string) => {
     const params = new URLSearchParams({ trainer_entrypoint: trainerEntryPoint });

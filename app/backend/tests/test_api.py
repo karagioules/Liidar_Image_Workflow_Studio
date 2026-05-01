@@ -1099,6 +1099,88 @@ def test_training_config_route_persists_job_for_accepted_directory(tmp_path: Pat
     assert expected_config_path.is_file()
 
 
+def test_training_run_starts_trainer_and_registers_completed_lora(tmp_path: Path) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    fake_trainer = tmp_path / "fake-trainer.ps1"
+    fake_trainer.write_text(
+        "\n".join(
+            [
+                "param([string]$ConfigPath)",
+                "$Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json",
+                "New-Item -ItemType Directory -Force -Path $Config.output_dir | Out-Null",
+                "$Output = Join-Path $Config.output_dir ($Config.lora_name + '.safetensors')",
+                "Set-Content -LiteralPath $Output -Value 'fake lora'",
+                "Write-Output ('wrote ' + $Output)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "ari_style",
+                "global_pack": True,
+            },
+            "accepted_image_count": 3,
+        },
+    ).json()
+
+    started = client.post(
+        f"/api/training/{job['job_id']}/runs",
+        json={"trainer_entrypoint": str(fake_trainer)},
+    )
+
+    assert started.status_code == 200
+    run_id = started.json()["run_id"]
+    status = started.json()
+    for _ in range(40):
+        status = client.get(f"/api/training/runs/{run_id}").json()
+        if status["status"] not in {"queued", "running"}:
+            break
+        time.sleep(0.1)
+
+    assert status["status"] == "completed"
+    assert status["exit_code"] == 0
+    assert Path(status["output_lora_path"]).is_file()
+    assert any("wrote" in line for line in status["tail"])
+    jobs = client.get("/api/training/jobs").json()
+    assert jobs[0]["completed_lora_path"] == status["output_lora_path"]
+
+
+def test_training_run_rejects_missing_trainer_entrypoint(tmp_path: Path) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "dataset-1",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "ari_style",
+            },
+            "accepted_image_count": 1,
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/training/{job['job_id']}/runs",
+        json={"trainer_entrypoint": str(tmp_path / "missing.ps1")},
+    )
+
+    assert response.status_code == 400
+    assert "Trainer entrypoint does not exist" in response.json()["detail"]
+
+
 def test_global_learning_job_creates_crops_and_versioned_global_config(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "raw"
     source.mkdir()
