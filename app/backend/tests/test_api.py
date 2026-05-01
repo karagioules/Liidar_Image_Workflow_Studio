@@ -417,10 +417,10 @@ def test_dataset_prep_ai_chest_crop_prefers_breast_boxes_over_broad_target() -> 
 def test_dataset_prep_ai_image_payload_is_cost_capped() -> None:
     encoded = dataset_prepper._encode_image_for_ai(Image.new("RGB", (3000, 2200), color=(220, 190, 170)))
     with Image.open(io.BytesIO(base64.b64decode(encoded))) as resized:
-        assert max(resized.size) == 512
+        assert max(resized.size) == 384
 
 
-def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
+def test_dataset_prep_claude_crop_uses_compact_json_request(monkeypatch) -> None:
     captured_payload: dict | None = None
 
     def fake_post(*args, **kwargs):
@@ -431,14 +431,13 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
             json={
                 "content": [
                     {
-                        "type": "tool_use",
-                        "name": "return_crop",
-                        "input": {
-                            "visible_target": True,
-                            "breast_boxes": [[0.22, 0.37, 0.46, 0.58], [0.5, 0.36, 0.74, 0.59]],
-                            "nipple_boxes": [[0.34, 0.47, 0.38, 0.51], [0.61, 0.46, 0.65, 0.51]],
-                            "face_box": [0.3, 0.04, 0.68, 0.32],
-                        },
+                        "type": "text",
+                        "text": (
+                            '{"visible_target":true,'
+                            '"breast_boxes":[[0.22,0.37,0.46,0.58],[0.5,0.36,0.74,0.59]],'
+                            '"nipple_boxes":[[0.34,0.47,0.38,0.51],[0.61,0.46,0.65,0.51]],'
+                            '"face_box":[0.3,0.04,0.68,0.32]}'
+                        ),
                     }
                 ]
             },
@@ -458,10 +457,9 @@ def test_dataset_prep_claude_crop_reads_tool_use_response(monkeypatch) -> None:
     assert 130 <= crop[0] <= 230
     assert 730 <= crop[2] <= 830
     assert captured_payload is not None
-    assert captured_payload["tool_choice"] == {"type": "tool", "name": "return_crop"}
-    assert captured_payload["tools"][0]["name"] == "return_crop"
-    assert "target_box" not in captured_payload["tools"][0]["input_schema"]["properties"]
-    assert "nipple_boxes" in captured_payload["tools"][0]["input_schema"]["required"]
+    assert "tools" not in captured_payload
+    assert captured_payload["max_tokens"] <= 80
+    assert "nipple_boxes" in captured_payload["messages"][0]["content"][1]["text"]
 
 
 def test_dataset_prep_ai_failure_skips_instead_of_writing_fallback_crop(tmp_path: Path, monkeypatch) -> None:

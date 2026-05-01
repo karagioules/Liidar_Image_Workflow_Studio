@@ -257,20 +257,14 @@ def _claude_crop_box(
     encoded = _encode_image_for_ai(image)
     target_label = _target_instruction(target)
     prompt = (
-        "You are returning non-identifying crop coordinates for adult-only dataset preparation. "
-        "Use normalized coordinates from 0 to 1 as [left, top, right, bottom]. "
-        "Do not make a portrait crop. Do not preserve the full person. "
-        "For chest_detail, return breast_boxes around the full visible breast shape and nipple_boxes around visible nipples/areolas. "
-        "The crop must include each visible nipple/areola and the full visible breast outline, not just cleavage or partial side detail. "
-        "Do not include the face, head, eyes, mouth, neck-only area, arms-only area, or full torso in breast_boxes. "
-        "If visible nipples/areolas are cut off, hidden, or impossible to locate, set visible_target false. "
-        "If you cannot isolate full breast-region boxes, set visible_target false. "
-        "Set face_box to null if no face is visible. "
-        "If the requested target is not visible, set visible_target false. "
+        "Return compact JSON only. Coordinates are normalized [left,top,right,bottom]. "
+        "For chest_detail, visible_target is true only when visible nipples/areolas and full visible breast outlines can be boxed. "
+        "Return breast_boxes for full visible breast shapes and nipple_boxes for visible nipples/areolas. "
+        "Exclude face/head/mouth/eyes; no portrait/full-torso crop. "
+        "If nipples/areolas are hidden or cut off, visible_target=false. "
         f"Target: {target_label}. "
-        "Do not describe the image. Return only coordinates through the tool."
+        'JSON: {"visible_target":true,"breast_boxes":[[0.2,0.3,0.45,0.62],[0.52,0.3,0.78,0.62]],"nipple_boxes":[[0.32,0.46,0.36,0.5],[0.64,0.46,0.68,0.5]],"face_box":null}'
     )
-    tool = _claude_crop_tool(target)
     try:
         response = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -281,10 +275,8 @@ def _claude_crop_box(
             },
             json={
                 "model": model,
-                "max_tokens": 120,
+                "max_tokens": 80,
                 "temperature": 0,
-                "tools": [tool],
-                "tool_choice": {"type": "tool", "name": "return_crop"},
                 "messages": [
                     {
                         "role": "user",
@@ -318,86 +310,6 @@ def _claude_crop_box(
         return None, f"Claude AI crop failed for at least one image; that image was skipped. {exc}"
 
 
-def _claude_crop_tool(target: str) -> dict:
-    if target == "chest_detail":
-        return {
-            "name": "return_crop",
-            "description": "Return tight breast-region crop coordinates.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "visible_target": {"type": "boolean"},
-                    "breast_boxes": {
-                        "type": "array",
-                        "items": {
-                            "type": "array",
-                            "minItems": 4,
-                            "maxItems": 4,
-                            "items": {"type": "number"},
-                        },
-                    },
-                    "nipple_boxes": {
-                        "type": "array",
-                        "items": {
-                            "type": "array",
-                            "minItems": 4,
-                            "maxItems": 4,
-                            "items": {"type": "number"},
-                        },
-                    },
-                    "face_box": {
-                        "type": ["array", "null"],
-                        "minItems": 4,
-                        "maxItems": 4,
-                        "items": {"type": "number"},
-                    },
-                },
-                "required": ["visible_target", "breast_boxes", "nipple_boxes", "face_box"],
-                "additionalProperties": False,
-            },
-        }
-    return {
-        "name": "return_crop",
-        "description": "Return the visible target region as normalized image coordinates.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "visible_target": {"type": "boolean"},
-                "breast_boxes": {
-                    "type": "array",
-                    "items": {
-                        "type": "array",
-                        "minItems": 4,
-                        "maxItems": 4,
-                        "items": {"type": "number"},
-                    },
-                },
-                "target_box": {
-                    "type": ["array", "null"],
-                    "minItems": 4,
-                    "maxItems": 4,
-                    "items": {"type": "number"},
-                },
-                "face_box": {
-                    "type": ["array", "null"],
-                    "minItems": 4,
-                    "maxItems": 4,
-                    "items": {"type": "number"},
-                },
-                "crop_box": {
-                    "type": ["array", "null"],
-                    "minItems": 4,
-                    "maxItems": 4,
-                    "items": {"type": "number"},
-                },
-                "confidence": {"type": "number"},
-            },
-            "required": ["visible_target", "breast_boxes", "target_box", "face_box", "crop_box", "confidence"],
-            "additionalProperties": False,
-        },
-    }
-
-
 def _anthropic_error_message(response: httpx.Response) -> str:
     detail = response.text.strip()
     try:
@@ -426,9 +338,9 @@ def _target_instruction(target: str) -> str:
 
 def _encode_image_for_ai(image: Image.Image) -> str:
     resized = image.copy()
-    resized.thumbnail((512, 512))
+    resized.thumbnail((384, 384))
     buffer = io.BytesIO()
-    resized.save(buffer, format="JPEG", quality=78)
+    resized.save(buffer, format="JPEG", quality=72)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
