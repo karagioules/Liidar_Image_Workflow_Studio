@@ -251,14 +251,14 @@ def create_app(
     @app.post("/api/dataset-prep/crop", response_model=DatasetPrepResponse)
     def prep_dataset_crops(request: DatasetPrepRequest) -> DatasetPrepResponse:
         try:
-            return prepare_dataset_crops(request, anthropic_api_key=api_keys.api_key() if request.use_ai else None)
+            return prepare_dataset_crops(_server_ai_request(request, api_keys), anthropic_api_key=api_keys.api_key() if request.use_ai else None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/dataset-prep/jobs", response_model=DatasetPrepJobStatus)
     def start_dataset_prep_job(request: DatasetPrepRequest) -> DatasetPrepJobStatus:
         try:
-            return prep_jobs.start(request, anthropic_api_key=api_keys.api_key() if request.use_ai else None)
+            return prep_jobs.start(_server_ai_request(request, api_keys), anthropic_api_key=api_keys.api_key() if request.use_ai else None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -315,6 +315,12 @@ def _get_profile_or_404(store: ProfileStore, profile_id: str) -> CharacterProfil
         raise HTTPException(status_code=404, detail="Character profile not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _server_ai_request(request: DatasetPrepRequest, api_keys: ApiKeyStore) -> DatasetPrepRequest:
+    if not request.use_ai:
+        return request
+    return request.model_copy(update={"ai_model": api_keys.model()})
 
 
 def _active_global_lora_files(training: TrainingStore) -> list[str]:

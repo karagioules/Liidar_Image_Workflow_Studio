@@ -108,6 +108,23 @@ def test_anthropic_key_routes_save_status_and_delete(tmp_path: Path) -> None:
     assert removed.json()["saved"] is False
 
 
+def test_anthropic_key_status_migrates_retired_haiku_model(tmp_path: Path) -> None:
+    secrets = tmp_path / "config" / "secrets"
+    secrets.mkdir(parents=True)
+    secret_file = secrets / "anthropic.json"
+    secret_file.write_text(
+        '{"api_key":"sk-ant-test","model":"claude-3-haiku-20240307"}',
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get("/api/settings/anthropic-key")
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "claude-haiku-4-5-20251001"
+    assert "claude-haiku-4-5-20251001" in secret_file.read_text(encoding="utf-8")
+
+
 def test_anthropic_key_test_route_surfaces_provider_error(tmp_path: Path, monkeypatch) -> None:
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
     client.post("/api/settings/anthropic-key", json={"api_key": "sk-ant-test"})
@@ -127,6 +144,22 @@ def test_anthropic_key_test_route_surfaces_provider_error(tmp_path: Path, monkey
     assert body["ok"] is False
     assert body["status_code"] == 404
     assert body["message"] == "404 Not Found - not_found_error: model not found"
+
+
+def test_dataset_prep_request_uses_server_active_model_over_stale_payload(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    client.post("/api/settings/anthropic-key", json={"api_key": "sk-ant-test"})
+    request = DatasetPrepRequest(
+        source_folder=tmp_path,
+        output_folder=tmp_path / "out",
+        target="chest_detail",
+        use_ai=True,
+        ai_model="claude-3-haiku-20240307",
+    )
+
+    updated = main_module._server_ai_request(request, main_module.ApiKeyStore(tmp_path))
+
+    assert updated.ai_model == "claude-haiku-4-5-20251001"
 
 
 def test_gpu_counter_probe_treats_idle_gpu_as_zero(monkeypatch) -> None:
