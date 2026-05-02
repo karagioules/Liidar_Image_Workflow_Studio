@@ -64,10 +64,10 @@ class TrainingConfigRequest(BaseModel):
     lora_name: str = Field(min_length=1, max_length=120)
     dataset_type: DatasetType | None = None
     global_pack: bool = True
-    resolution: int = Field(default=1024, gt=0)
-    repeats: int = Field(default=10, gt=0)
+    resolution: int = Field(default=768, gt=0)
+    repeats: int = Field(default=6, gt=0)
     batch_size: int = Field(default=1, gt=0)
-    max_train_steps: int = Field(default=1200, gt=0)
+    max_train_steps: int = Field(default=900, gt=0)
     learning_rate: float = Field(default=1e-4, gt=0)
     network_dim: int = Field(default=32, gt=0)
     network_alpha: int = Field(default=16, gt=0)
@@ -83,10 +83,10 @@ class TrainingJobConfig(BaseModel):
     lora_name: str
     dataset_type: DatasetType | None = None
     global_pack: bool = True
-    resolution: int = 1024
-    repeats: int = 10
+    resolution: int = 768
+    repeats: int = 6
     batch_size: int = 1
-    max_train_steps: int = 1200
+    max_train_steps: int = 900
     learning_rate: float = 1e-4
     network_dim: int = 32
     network_alpha: int = 16
@@ -94,6 +94,11 @@ class TrainingJobConfig(BaseModel):
     completed_lora_path: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ClearTrainingJobsResponse(BaseModel):
+    removed_count: int = Field(ge=0)
+    remaining_jobs: list[TrainingJobConfig] = Field(default_factory=list)
 
 
 class TrainingRunStartRequest(BaseModel):
@@ -110,6 +115,9 @@ class TrainingRunStatus(BaseModel):
     process_id: int | None = None
     exit_code: int | None = None
     log_path: str | None = None
+    progress_current: int | None = None
+    progress_total: int | None = None
+    progress_percent: float | None = None
     tail: list[str] = Field(default_factory=list)
     error: str | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -738,3 +738,4 @@ def _reason_for(method: str, target: str) -> str:
     if method == "face_guided":
         return f"{label} crop below detected face"
     return f"{label} center fallback crop"
+

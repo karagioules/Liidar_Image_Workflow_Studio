@@ -2,15 +2,19 @@ import type {
   ApiKeyStatus,
   ApiKeyTestResponse,
   CharacterProfile,
+  ClearTrainingJobsResponse,
   DatasetPrepJobStatus,
   DatasetPrepRequest,
   DatasetPrepResponse,
   DatasetScanReport,
   DatasetScanRequest,
   GenerationJobResponse,
+  GenerationJobStatus,
+  GenerationOutputImage,
   GenerationRequest,
   GlobalLearningRequest,
   GlobalLearningResponse,
+  ImageCountResponse,
   PathBrowserResponse,
   PromptRecipe,
   ReferenceAnalysisResponse,
@@ -95,6 +99,7 @@ export const api = {
       body: JSON.stringify(profile)
     }),
   thumbnailUrl: (path: string) => `${API_BASE}/api/filesystem/thumbnail?${new URLSearchParams({ path }).toString()}`,
+  imageCount: (path: string) => request<ImageCountResponse>(`/api/filesystem/image-count?${new URLSearchParams({ path }).toString()}`),
   saveCharacter: (profile: CharacterProfile) =>
     request<CharacterProfile>("/api/characters", {
       method: "POST",
@@ -110,12 +115,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  generationJob: (promptId: string) => request<GenerationJobStatus>(`/api/generate/jobs/${promptId}`),
+  generatedImageUrl: (image: GenerationOutputImage) =>
+    `${API_BASE}/api/generate/image?${new URLSearchParams({
+      filename: image.filename,
+      subfolder: image.subfolder,
+      type: image.type
+    }).toString()}`,
   scanTraining: (payload: DatasetScanRequest) =>
     request<DatasetScanReport>("/api/training/scan", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
   trainingJobs: () => request<TrainingJobConfig[]>("/api/training/jobs"),
+  clearPendingTrainingJobs: () =>
+    request<ClearTrainingJobsResponse>("/api/training/jobs/pending", {
+      method: "DELETE"
+    }),
   trainingRuns: () => request<TrainingRunStatus[]>("/api/training/runs"),
   createGlobalLearningJob: (payload: GlobalLearningRequest) =>
     request<GlobalLearningResponse>("/api/learning/global-job", {

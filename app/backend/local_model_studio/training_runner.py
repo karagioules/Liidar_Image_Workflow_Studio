@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock, Thread
@@ -10,6 +12,8 @@ from local_model_studio.paths import WorkspacePaths
 from local_model_studio.training_config import build_trainer_command
 from local_model_studio.training_schemas import TrainingJobConfig, TrainingRunStatus
 from local_model_studio.training_store import TrainingStore
+
+PROGRESS_RE = re.compile(r"(?P<percent>\d{1,3})%\|.*?\|\s*(?P<current>\d+)\s*/\s*(?P<total>\d+)")
 
 
 class TrainingRunManager:
@@ -21,7 +25,7 @@ class TrainingRunManager:
         self._lock = Lock()
 
     def start(self, job_id: str, trainer_entrypoint: str) -> TrainingRunStatus:
-        job = self.training.get(job_id)
+        job = self.training.prepare_job_dataset(job_id)
         build_trainer_command(_resolve_workspace_path(self.paths.root, trainer_entrypoint), job.config_path or "")
         run = _TrainingRun(self.paths, self.training, job, trainer_entrypoint)
         with self._lock:
@@ -74,12 +78,14 @@ class _TrainingRun:
     def cancel(self) -> None:
         with self._lock:
             if self.process and self.process.poll() is None:
-                self.process.terminate()
+                _terminate_process_tree(self.process)
             self.status = "cancelled"
             self.updated_at = datetime.now(UTC)
 
     def snapshot(self) -> TrainingRunStatus:
         with self._lock:
+            tail = _read_tail(self.log_path)
+            progress = _parse_training_progress(tail)
             return TrainingRunStatus(
                 run_id=self.run_id,
                 job_id=self.job.job_id,
@@ -90,7 +96,10 @@ class _TrainingRun:
                 process_id=self.process.pid if self.process else None,
                 exit_code=self.exit_code,
                 log_path=str(self.log_path),
-                tail=_read_tail(self.log_path),
+                progress_current=progress[0],
+                progress_total=progress[1],
+                progress_percent=progress[2],
+                tail=tail,
                 error=self.error,
                 started_at=self.started_at,
                 updated_at=self.updated_at,
@@ -106,6 +115,11 @@ class _TrainingRun:
             with self.log_path.open("w", encoding="utf-8", errors="replace") as log:
                 log.write("Starting training command:\n")
                 log.write(" ".join(command) + "\n\n")
+                stopped_comfy_processes = _stop_workspace_comfyui(self.paths.root)
+                if stopped_comfy_processes:
+                    log.write(
+                        f"Paused {stopped_comfy_processes} local ComfyUI process(es) so training can use GPU VRAM.\n\n"
+                    )
                 log.flush()
                 process = subprocess.Popen(
                     command,
@@ -118,6 +132,8 @@ class _TrainingRun:
                     self.process = process
                     self.updated_at = datetime.now(UTC)
                 exit_code = process.wait()
+                if stopped_comfy_processes:
+                    _start_workspace_comfyui(self.paths.root, self.paths.logs_dir)
             with self._lock:
                 self.exit_code = exit_code
                 if self.status == "cancelled":
@@ -152,10 +168,95 @@ def _expected_lora_path(root: Path, job: TrainingJobConfig) -> Path:
     return output_dir / f"{job.lora_name}.safetensors"
 
 
-def _read_tail(path: Path, line_count: int = 30) -> list[str]:
+def _read_tail(path: Path, line_count: int = 2000) -> list[str]:
     if not path.is_file():
         return []
     try:
         return path.read_text(encoding="utf-8", errors="replace").splitlines()[-line_count:]
     except OSError:
         return []
+
+
+def _parse_training_progress(lines: list[str]) -> tuple[int | None, int | None, float | None]:
+    for line in reversed(lines):
+        match = PROGRESS_RE.search(line)
+        if not match:
+            continue
+        current = int(match.group("current"))
+        total = int(match.group("total"))
+        if total <= 0:
+            return current, total, None
+        percent = min(100.0, max(0.0, (current / total) * 100))
+        return current, total, round(percent, 1)
+    return None, None, None
+
+
+def _terminate_process_tree(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return
+    process.terminate()
+
+
+def _stop_workspace_comfyui(root: Path) -> int:
+    if sys.platform != "win32":
+        return 0
+    comfy_path = str((root / "ComfyUI").resolve())
+    script = f"""
+$comfyPath = '{comfy_path.replace("'", "''")}'
+$portOwners = Get-NetTCPConnection -LocalPort 8188 -State Listen -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique
+$processes = Get-CimInstance Win32_Process -Filter "name = 'python.exe'" |
+  Where-Object {{
+    ($portOwners -contains $_.ProcessId) -or
+    ($_.CommandLine -and $_.CommandLine.Contains($comfyPath) -and $_.CommandLine.Contains('main.py') -and $_.CommandLine.Contains('--port 8188'))
+  }}
+$count = 0
+foreach ($process in $processes) {{
+  Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  $count++
+}}
+Write-Output $count
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        return int((result.stdout or "0").strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _start_workspace_comfyui(root: Path, logs_dir: Path) -> None:
+    if sys.platform != "win32":
+        return
+    comfy_path = root / "ComfyUI"
+    comfy_python = comfy_path / ".venv" / "Scripts" / "python.exe"
+    if not comfy_python.is_file():
+        return
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / "comfyui-after-training.log"
+    comfy_dir = str(comfy_path).replace("'", "''")
+    python_path = str(comfy_python).replace("'", "''")
+    output_log = str(log_path).replace("'", "''")
+    command = (
+        f"Set-Location -LiteralPath '{comfy_dir}'; "
+        f"& '{python_path}' main.py --listen 127.0.0.1 --port 8188 "
+        f"*> '{output_log}'"
+    )
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        cwd=str(root),
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )

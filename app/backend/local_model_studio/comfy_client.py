@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -34,3 +35,25 @@ class ComfyClient:
             raise RuntimeError("ComfyUI response did not include a valid prompt_id.")
 
         return prompt_id
+
+    def queue(self) -> dict[str, Any]:
+        response = httpx.get(f"{self.base_url}/queue", timeout=self.timeout)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("ComfyUI returned an invalid queue response.")
+        return payload
+
+    def history(self, prompt_id: str) -> dict[str, Any]:
+        response = httpx.get(f"{self.base_url}/history/{prompt_id}", timeout=self.timeout)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("ComfyUI returned an invalid history response.")
+        return payload
+
+    def image_bytes(self, *, filename: str, subfolder: str = "", image_type: str = "output") -> tuple[bytes, str]:
+        params = urlencode({"filename": filename, "subfolder": subfolder, "type": image_type})
+        response = httpx.get(f"{self.base_url}/view?{params}", timeout=self.timeout)
+        response.raise_for_status()
+        return response.content, response.headers.get("content-type", "image/png")

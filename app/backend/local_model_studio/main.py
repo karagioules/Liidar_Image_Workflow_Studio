@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -31,6 +35,8 @@ from local_model_studio.schemas import (
     DatasetPrepRequest,
     DatasetPrepResponse,
     GenerationJobResponse,
+    GenerationJobStatus,
+    GenerationOutputImage,
     GenerationRequest,
     PathBrowserResponse,
     PromptRecipe,
@@ -44,6 +50,7 @@ from local_model_studio.schemas import (
 from local_model_studio.training_config import build_training_config, check_trainer_status
 from local_model_studio.training_runner import TrainingRunManager
 from local_model_studio.training_schemas import (
+    ClearTrainingJobsResponse,
     DatasetScanReport,
     DatasetScanRequest,
     GlobalLearningRequest,
@@ -64,6 +71,11 @@ CHECKPOINT_NAME = "sdxl_base_1.0.safetensors"
 class TrainingConfigPayload(BaseModel):
     request: TrainingConfigRequest
     accepted_image_count: int = Field(gt=0)
+
+
+class ImageCountResponse(BaseModel):
+    path: str
+    image_count: int = Field(ge=0)
 
 
 class RegisterLoraPayload(BaseModel):
@@ -167,6 +179,14 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/filesystem/image-count", response_model=ImageCountResponse)
+    def image_count(path: str) -> ImageCountResponse:
+        folder = Path(path)
+        if not folder.is_dir():
+            raise HTTPException(status_code=400, detail=f"Folder does not exist: {folder}")
+        count = sum(1 for item in folder.iterdir() if item.is_file() and item.suffix.lower() in IMAGE_SUFFIXES)
+        return ImageCountResponse(path=str(folder), image_count=count)
+
     @app.post("/api/filesystem/select-references", response_model=SelectedReferenceImagesResponse)
     def select_reference_images(mode: str = Query(pattern="^(files|folder)$")) -> SelectedReferenceImagesResponse:
         try:
@@ -248,6 +268,27 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return GenerationJobResponse(prompt_id=prompt_id, recipe=recipe)
 
+    @app.get("/api/generate/jobs/{prompt_id}", response_model=GenerationJobStatus)
+    def generation_status(prompt_id: str) -> GenerationJobStatus:
+        try:
+            return _generation_status_from_comfy(comfy, prompt_id)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"ComfyUI request failed: {exc}") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/generate/image")
+    def generated_image(
+        filename: str = Query(min_length=1),
+        subfolder: str = "",
+        type: str = "output",
+    ) -> Response:
+        try:
+            content, media_type = comfy.image_bytes(filename=filename, subfolder=subfolder, image_type=type)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"ComfyUI image request failed: {exc}") from exc
+        return Response(content=content, media_type=media_type)
+
     @app.post("/api/training/scan", response_model=DatasetScanReport)
     def scan_training_dataset(request: DatasetScanRequest) -> DatasetScanReport:
         try:
@@ -258,6 +299,14 @@ def create_app(
     @app.get("/api/training/jobs", response_model=list[TrainingJobConfig])
     def list_training_jobs() -> list[TrainingJobConfig]:
         return training.list()
+
+    @app.delete("/api/training/jobs/pending", response_model=ClearTrainingJobsResponse)
+    def clear_pending_training_jobs() -> ClearTrainingJobsResponse:
+        removed_count = training.clear_pending_global_jobs()
+        return ClearTrainingJobsResponse(
+            removed_count=removed_count,
+            remaining_jobs=training.list(),
+        )
 
     @app.get("/api/training/runs", response_model=list[TrainingRunStatus])
     def list_training_runs() -> list[TrainingRunStatus]:
@@ -316,7 +365,10 @@ def create_app(
         config_path: str | None = None,
     ) -> TrainerStatus:
         resolved_config_path = config_path or str(workspace_paths.training_dir)
-        return check_trainer_status(trainer_entrypoint, resolved_config_path)
+        return check_trainer_status(
+            _resolve_workspace_path(workspace_paths.root, trainer_entrypoint),
+            _resolve_workspace_path(workspace_paths.root, resolved_config_path),
+        )
 
     @app.post("/api/training/{job_id}/runs", response_model=TrainingRunStatus)
     def start_training_run(job_id: str, payload: TrainingRunStartRequest) -> TrainingRunStatus:
@@ -380,60 +432,185 @@ def _active_global_lora_files(training: TrainingStore) -> list[str]:
     ]
 
 
-def _select_reference_paths(mode: str) -> list[str]:
-    try:
-        from tkinter import Tk, filedialog
-    except Exception as exc:
-        raise RuntimeError("Windows file picker is not available in this Python environment.") from exc
+def _resolve_workspace_path(root: Path, path: str | Path) -> Path:
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else root / candidate
 
-    try:
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-    except Exception as exc:
-        raise RuntimeError(f"Unable to open Windows file picker: {exc}") from exc
 
-    try:
-        if mode == "files":
-            selected = filedialog.askopenfilenames(
-                title="Select reference images",
-                filetypes=[
-                    ("Image files", "*.avif *.bmp *.jpeg *.jpg *.png *.webp"),
-                    ("All files", "*.*"),
-                ],
+def _generation_status_from_comfy(comfy: ComfyClient, prompt_id: str) -> GenerationJobStatus:
+    history = comfy.history(prompt_id)
+    history_item = history.get(prompt_id)
+    if isinstance(history_item, dict):
+        images = _images_from_history(history_item)
+        if images:
+            return GenerationJobStatus(prompt_id=prompt_id, status="completed", images=images)
+        status = history_item.get("status")
+        if isinstance(status, dict) and status.get("status_str") == "error":
+            messages = status.get("messages")
+            return GenerationJobStatus(prompt_id=prompt_id, status="failed", error=str(messages or "ComfyUI reported an error."))
+        return GenerationJobStatus(prompt_id=prompt_id, status="completed", images=[])
+
+    queue = comfy.queue()
+    running_ids = _prompt_ids_from_queue_items(queue.get("queue_running"))
+    if prompt_id in running_ids:
+        return GenerationJobStatus(prompt_id=prompt_id, status="running", queue_position=0)
+
+    pending_ids = _prompt_ids_from_queue_items(queue.get("queue_pending"))
+    if prompt_id in pending_ids:
+        return GenerationJobStatus(prompt_id=prompt_id, status="queued", queue_position=pending_ids.index(prompt_id) + 1)
+
+    return GenerationJobStatus(prompt_id=prompt_id, status="unknown", error="Job is not in ComfyUI queue or history yet.")
+
+
+def _images_from_history(history_item: dict[str, Any]) -> list[GenerationOutputImage]:
+    outputs = history_item.get("outputs")
+    if not isinstance(outputs, dict):
+        return []
+
+    images: list[GenerationOutputImage] = []
+    for output in outputs.values():
+        if not isinstance(output, dict):
+            continue
+        output_images = output.get("images")
+        if not isinstance(output_images, list):
+            continue
+        for image in output_images:
+            if not isinstance(image, dict):
+                continue
+            filename = image.get("filename")
+            if not isinstance(filename, str) or not filename:
+                continue
+            images.append(
+                GenerationOutputImage(
+                    filename=filename,
+                    subfolder=str(image.get("subfolder") or ""),
+                    type=str(image.get("type") or "output"),
+                )
             )
-            return _supported_image_paths(Path(path) for path in selected)
+    return images
 
-        folder = filedialog.askdirectory(title="Select reference image folder")
-        if not folder:
+
+def _prompt_ids_from_queue_items(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    prompt_ids: list[str] = []
+    for item in value:
+        if isinstance(item, list) and len(item) > 1 and isinstance(item[1], str):
+            prompt_ids.append(item[1])
+        elif isinstance(item, dict):
+            prompt_id = item.get("prompt_id")
+            if isinstance(prompt_id, str):
+                prompt_ids.append(prompt_id)
+    return prompt_ids
+
+
+def _select_reference_paths(mode: str) -> list[str]:
+    if mode == "files":
+        return _supported_image_paths(Path(path) for path in _select_windows_files())
+
+    folder = _select_folder_path("Select reference image folder")
+    if not folder:
+        return []
+    return _supported_image_paths(path for path in Path(folder).rglob("*") if path.is_file())
+
+
+def _select_folder_path(title: str = "Select training data folder") -> str | None:
+    if sys.platform != "win32":
+        raise RuntimeError("Windows folder picker is only available on Windows.")
+    script = f"""
+Add-Type -AssemblyName System.Windows.Forms
+$OutputPath = '{_ps_quote("__OUTPUT_PATH__")}'
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = '{_ps_quote(title)}'
+$dialog.ShowNewFolderButton = $true
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.StartPosition = 'CenterScreen'
+$owner.Width = 1
+$owner.Height = 1
+$owner.ShowInTaskbar = $false
+$owner.Show()
+$owner.Activate()
+$result = $dialog.ShowDialog($owner)
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
+  Set-Content -LiteralPath $OutputPath -Encoding UTF8 -Value $dialog.SelectedPath
+}}
+$owner.Close()
+$owner.Dispose()
+"""
+    output = _run_sta_powershell_picker(script)
+    return output[0] if output else None
+
+
+def _select_windows_files() -> list[str]:
+    if sys.platform != "win32":
+        raise RuntimeError("Windows file picker is only available on Windows.")
+    script = """
+Add-Type -AssemblyName System.Windows.Forms
+$OutputPath = '__OUTPUT_PATH__'
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Select reference images'
+$dialog.Filter = 'Image files (*.avif;*.bmp;*.jpeg;*.jpg;*.png;*.webp)|*.avif;*.bmp;*.jpeg;*.jpg;*.png;*.webp|All files (*.*)|*.*'
+$dialog.Multiselect = $true
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.StartPosition = 'CenterScreen'
+$owner.Width = 1
+$owner.Height = 1
+$owner.ShowInTaskbar = $false
+$owner.Show()
+$owner.Activate()
+$result = $dialog.ShowDialog($owner)
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+  Set-Content -LiteralPath $OutputPath -Encoding UTF8 -Value $dialog.FileNames
+}
+$owner.Close()
+$owner.Dispose()
+"""
+    return _run_sta_powershell_picker(script)
+
+
+def _run_sta_powershell_picker(script: str) -> list[str]:
+    with tempfile.TemporaryDirectory(prefix="liidar-picker-") as temp_dir:
+        temp_path = Path(temp_dir)
+        output_path = temp_path / "selected.txt"
+        error_path = temp_path / "picker.err.txt"
+        script_path = temp_path / "picker.ps1"
+        script_path.write_text(
+            script.replace("__OUTPUT_PATH__", str(output_path).replace("'", "''")),
+            encoding="utf-8",
+        )
+        escaped_script_path = str(script_path).replace("'", "''")
+
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                (
+                    "$process = Start-Process powershell.exe "
+                    f"-ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File','{escaped_script_path}') "
+                    "-WindowStyle Normal -Wait -PassThru; "
+                    "exit $process.ExitCode"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=None,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (error_path.read_text(encoding="utf-8", errors="replace") if error_path.exists() else result.stderr or result.stdout or "Unknown picker error.").strip()
+            raise RuntimeError(f"Unable to open Windows picker: {detail}")
+        if not output_path.exists():
             return []
-        return _supported_image_paths(path for path in Path(folder).rglob("*") if path.is_file())
-    except Exception as exc:
-        raise RuntimeError(f"Unable to open Windows file picker: {exc}") from exc
-    finally:
-        root.destroy()
+        return [line.strip().lstrip("\ufeff") for line in output_path.read_text(encoding="utf-8-sig", errors="replace").splitlines() if line.strip()]
 
 
-def _select_folder_path() -> str | None:
-    try:
-        from tkinter import Tk, filedialog
-    except Exception as exc:
-        raise RuntimeError("Windows folder picker is not available in this Python environment.") from exc
-
-    try:
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-    except Exception as exc:
-        raise RuntimeError(f"Unable to open Windows folder picker: {exc}") from exc
-
-    try:
-        folder = filedialog.askdirectory(title="Select training data folder")
-        return folder or None
-    except Exception as exc:
-        raise RuntimeError(f"Unable to open Windows folder picker: {exc}") from exc
-    finally:
-        root.destroy()
+def _ps_quote(value: str) -> str:
+    return value.replace("'", "''")
 
 
 def _supported_image_paths(paths: Iterable[Path]) -> list[str]:

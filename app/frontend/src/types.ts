@@ -151,6 +151,11 @@ export interface SelectedFolderResponse {
   folder_path: string | null;
 }
 
+export interface ImageCountResponse {
+  path: string;
+  image_count: number;
+}
+
 export interface GenerationRequest {
   character_id: string;
   mode: GenerationMode;
@@ -174,6 +179,22 @@ export interface PromptRecipe {
 export interface GenerationJobResponse {
   prompt_id: string;
   recipe: PromptRecipe;
+}
+
+export type GenerationJobState = "queued" | "running" | "completed" | "failed" | "unknown";
+
+export interface GenerationOutputImage {
+  filename: string;
+  subfolder: string;
+  type: string;
+}
+
+export interface GenerationJobStatus {
+  prompt_id: string;
+  status: GenerationJobState;
+  queue_position: number | null;
+  images: GenerationOutputImage[];
+  error: string | null;
 }
 
 export interface DatasetScanRequest {
@@ -303,6 +324,11 @@ export interface TrainingJobConfig extends TrainingConfigRequest {
   updated_at?: string;
 }
 
+export interface ClearTrainingJobsResponse {
+  removed_count: number;
+  remaining_jobs: TrainingJobConfig[];
+}
+
 export interface TrainingRunStatus {
   run_id: string;
   job_id: string;
@@ -313,6 +339,9 @@ export interface TrainingRunStatus {
   process_id: number | null;
   exit_code: number | null;
   log_path: string | null;
+  progress_current: number | null;
+  progress_total: number | null;
+  progress_percent: number | null;
   tail: string[];
   error: string | null;
   started_at?: string;

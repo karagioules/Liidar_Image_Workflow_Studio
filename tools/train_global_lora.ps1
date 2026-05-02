@@ -30,6 +30,10 @@ if (-not (Test-Path -LiteralPath $Python)) {
   $Python = "python"
 }
 
+$env:PYTHONUTF8 = "1"
+$env:BNB_BACKEND = "cpu"
+$Resolution = [int]$Config.resolution
+
 & $Python -c "import torch; print('Trainer torch:', torch.__version__); print('GPU available:', torch.cuda.is_available()); print('GPU device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU fallback')"
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
@@ -42,7 +46,7 @@ if ($LASTEXITCODE -ne 0) {
   --output_name="$($Config.lora_name)" `
   --save_model_as="safetensors" `
   --network_module="networks.lora" `
-  --resolution="$($Config.resolution),$($Config.resolution)" `
+  --resolution="$Resolution,$Resolution" `
   --train_batch_size="$($Config.batch_size)" `
   --max_train_steps="$($Config.max_train_steps)" `
   --learning_rate="$($Config.learning_rate)" `
@@ -52,11 +56,16 @@ if ($LASTEXITCODE -ne 0) {
   --save_precision="fp16" `
   --optimizer_type="AdamW" `
   --cache_latents `
+  --cache_latents_to_disk `
+  --cache_text_encoder_outputs_to_disk `
+  --network_train_unet_only `
   --gradient_checkpointing `
-  --persistent_data_loader_workers `
+  --lowram `
+  --sdpa `
   --max_data_loader_n_workers=0 `
   --enable_bucket `
-  --bucket_no_upscale
+  --min_bucket_reso=256 `
+  --max_bucket_reso="$Resolution"
 
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

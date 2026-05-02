@@ -11,6 +11,7 @@ from local_model_studio.training_config import (
     build_training_config,
     check_trainer_status,
 )
+import local_model_studio.training_runner as training_runner
 from local_model_studio.training_schemas import TrainingConfigRequest
 from local_model_studio.training_store import TrainingStore
 
@@ -42,10 +43,10 @@ def test_build_training_config_contains_required_paths_and_defaults(tmp_path: Pa
     assert config.output_dir.endswith("training-runs")
     assert config.base_model_path == "H:/models/sdxl.safetensors"
     assert config.lora_name == "natural_body_shape"
-    assert config.resolution == 1024
-    assert config.repeats == 10
+    assert config.resolution == 768
+    assert config.repeats == 6
     assert config.batch_size == 1
-    assert config.max_train_steps == 1200
+    assert config.max_train_steps == 900
     assert config.learning_rate == 1e-4
     assert config.network_dim == 32
     assert config.network_alpha == 16
@@ -140,9 +141,44 @@ def test_check_trainer_status_reports_missing_backend_and_config(tmp_path: Path)
     assert any("config" in warning.lower() for warning in status.warnings)
 
 
+def test_training_cancel_terminates_windows_process_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    class FakeProcess:
+        pid = 1234
+
+        def poll(self) -> None:
+            return None
+
+    def fake_run(command: list[str], **_: object) -> object:
+        calls.append(command)
+        return object()
+
+    monkeypatch.setattr(training_runner.sys, "platform", "win32")
+    monkeypatch.setattr(training_runner.subprocess, "run", fake_run)
+
+    training_runner._terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
+
+    assert calls == [["taskkill", "/PID", "1234", "/T", "/F"]]
+
+
+def test_training_progress_parser_reads_latest_tqdm_line() -> None:
+    lines = [
+        "loading model",
+        " 25%|██▌       | 210/832 [06:39<24:21,  2.35s/it]",
+        " 30%|███       | 250/832 [07:48<15:18,  1.58s/it]",
+    ]
+
+    progress = training_runner._parse_training_progress(lines)
+
+    assert progress == (250, 832, 30.0)
+
+
 def test_training_store_save_get_list_and_register_completed_lora(tmp_path: Path) -> None:
     dataset = tmp_path / "accepted"
     dataset.mkdir()
+    image_path = dataset / "crop.jpg"
+    image_path.write_bytes(b"fake image bytes")
     config = build_training_config(_request(tmp_path, dataset), accepted_image_count=4)
     store = TrainingStore(WorkspacePaths(tmp_path))
     lora_path = tmp_path / "loras" / "body.safetensors"
@@ -154,11 +190,58 @@ def test_training_store_save_get_list_and_register_completed_lora(tmp_path: Path
     jobs = store.list()
     completed = store.register_completed_lora(saved.job_id, lora_path)
 
+    prepared_root = tmp_path / "config" / "training_datasets" / saved.job_id
+    prepared_image = prepared_root / "6_natural_body_shape" / "00001_crop.jpg"
     assert (tmp_path / "config" / "training" / f"{saved.job_id}.json").exists()
+    assert saved.dataset_path == str(prepared_root)
+    assert prepared_image.exists()
+    assert prepared_image.with_suffix(".caption").exists()
     assert loaded == saved
     assert [job.job_id for job in jobs] == [saved.job_id]
     assert completed.completed_lora_path == str(lora_path)
     assert store.get(saved.job_id).completed_lora_path == str(lora_path)
+
+
+def test_training_store_clear_pending_global_jobs_keeps_completed_packs(tmp_path: Path) -> None:
+    pending_dataset = tmp_path / "pending"
+    completed_dataset = tmp_path / "completed"
+    pending_dataset.mkdir()
+    completed_dataset.mkdir()
+    (pending_dataset / "crop.jpg").write_bytes(b"pending image")
+    (completed_dataset / "crop.jpg").write_bytes(b"completed image")
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    pending = store.save(build_training_config(_request(tmp_path, pending_dataset), accepted_image_count=1))
+    completed = store.save(build_training_config(_request(tmp_path, completed_dataset), accepted_image_count=1))
+    lora_path = tmp_path / "loras" / "completed.safetensors"
+    lora_path.parent.mkdir()
+    lora_path.write_text("artifact", encoding="utf-8")
+    store.register_completed_lora(completed.job_id, lora_path)
+
+    removed_count = store.clear_pending_global_jobs()
+
+    assert removed_count == 1
+    assert [job.job_id for job in store.list()] == [completed.job_id]
+    assert not store._path_for(pending.job_id).exists()
+    assert store._path_for(completed.job_id).exists()
+    assert Path(pending.dataset_path).exists()
+
+
+def test_training_store_repairs_stale_job_dataset_before_training(tmp_path: Path) -> None:
+    dataset = tmp_path / "downloads"
+    dataset.mkdir()
+    (dataset / "crop.jpg").write_bytes(b"fake image bytes")
+    config = build_training_config(_request(tmp_path, dataset), accepted_image_count=1)
+    store = TrainingStore(WorkspacePaths(tmp_path))
+    stale = config.model_copy(update={"dataset_path": str(dataset)})
+    store._path_for(stale.job_id).parent.mkdir(parents=True, exist_ok=True)
+    store._path_for(stale.job_id).write_text(stale.model_dump_json(indent=2), encoding="utf-8")
+
+    repaired = store.prepare_job_dataset(stale.job_id)
+
+    prepared_root = tmp_path / "config" / "training_datasets" / stale.job_id
+    assert repaired.dataset_path == str(prepared_root)
+    assert (prepared_root / "6_natural_body_shape" / "00001_crop.jpg").exists()
+    assert (prepared_root / "6_natural_body_shape" / "00001_crop.caption").exists()
 
 
 def test_training_store_rejects_missing_completed_lora_path(tmp_path: Path) -> None:

@@ -22,10 +22,22 @@ from local_model_studio.schemas import DatasetPrepRequest, DatasetPrepResponse
 class FakeComfyClient:
     def __init__(self) -> None:
         self.queued_workflow: dict | None = None
+        self.prompt_id = "prompt-123"
+        self.history_payload: dict = {}
+        self.queue_payload: dict = {"queue_running": [], "queue_pending": []}
 
     def queue_prompt(self, workflow: dict) -> str:
         self.queued_workflow = workflow
-        return "prompt-123"
+        return self.prompt_id
+
+    def history(self, prompt_id: str) -> dict:
+        return self.history_payload
+
+    def queue(self) -> dict:
+        return self.queue_payload
+
+    def image_bytes(self, *, filename: str, subfolder: str = "", image_type: str = "output") -> tuple[bytes, str]:
+        return b"image-bytes", "image/png"
 
 
 class FailingComfyClient:
@@ -215,6 +227,51 @@ def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path)
     assert comfy.queued_workflow["4"]["inputs"]["ckpt_name"] == "sdxl_base_1.0.safetensors"
 
 
+def test_generation_status_reports_pending_running_and_completed_images(tmp_path: Path) -> None:
+    comfy = FakeComfyClient()
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=comfy))
+
+    comfy.queue_payload = {"queue_running": [], "queue_pending": [[12, "prompt-123", {}, {}, []]]}
+    pending = client.get("/api/generate/jobs/prompt-123")
+
+    assert pending.status_code == 200
+    assert pending.json()["status"] == "queued"
+    assert pending.json()["queue_position"] == 1
+
+    comfy.queue_payload = {"queue_running": [[13, "prompt-123", {}, {}, []]], "queue_pending": []}
+    running = client.get("/api/generate/jobs/prompt-123")
+
+    assert running.status_code == 200
+    assert running.json()["status"] == "running"
+
+    comfy.history_payload = {
+        "prompt-123": {
+            "outputs": {
+                "9": {
+                    "images": [
+                        {"filename": "local_model_studio_00001_.png", "subfolder": "", "type": "output"}
+                    ]
+                }
+            }
+        }
+    }
+    completed = client.get("/api/generate/jobs/prompt-123")
+
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["images"][0]["filename"] == "local_model_studio_00001_.png"
+
+
+def test_generated_image_endpoint_proxies_comfy_view(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FakeComfyClient()))
+
+    response = client.get("/api/generate/image", params={"filename": "local_model_studio_00001_.png"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == b"image-bytes"
+
+
 def test_completed_global_pack_is_added_to_future_generation(tmp_path: Path) -> None:
     comfy = FakeComfyClient()
     accepted_dir = tmp_path / "datasets" / "accepted"
@@ -337,6 +394,7 @@ def test_dataset_prep_crop_route_writes_crops_to_output_folder(tmp_path: Path) -
     assert body["images"][0]["accepted"] is True
     assert body["images"][0]["output_path"].endswith(".jpg")
     assert Path(body["images"][0]["output_path"]).is_file()
+    assert not Path(body["images"][0]["output_path"]).with_suffix(".txt").exists()
 
 
 def test_dataset_prep_local_ai_route_writes_detector_crop_without_api_key(tmp_path: Path, monkeypatch) -> None:
@@ -365,6 +423,20 @@ def test_dataset_prep_local_ai_route_writes_detector_crop_without_api_key(tmp_pa
     assert body["ai_guided_count"] == 1
     assert body["images"][0]["method"] == "local_ai"
     assert body["images"][0]["crop_box"] == [120, 260, 720, 820]
+
+
+def test_image_count_endpoint_counts_training_images(tmp_path: Path) -> None:
+    folder = tmp_path / "prepared"
+    folder.mkdir()
+    Image.new("RGB", (64, 64), color=(20, 20, 20)).save(folder / "one.jpg")
+    Image.new("RGB", (64, 64), color=(20, 20, 20)).save(folder / "two.png")
+    (folder / "one.txt").write_text("caption", encoding="utf-8")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get("/api/filesystem/image-count", params={"path": str(folder)})
+
+    assert response.status_code == 200
+    assert response.json()["image_count"] == 2
 
 
 def test_dataset_prep_local_ai_failure_skips_instead_of_center_crop(tmp_path: Path, monkeypatch) -> None:
@@ -1097,6 +1169,84 @@ def test_training_config_route_persists_job_for_accepted_directory(tmp_path: Pat
     expected_config_path = tmp_path / "config" / "training" / f"{body['job_id']}.json"
     assert body["config_path"] == str(expected_config_path)
     assert expected_config_path.is_file()
+
+
+def test_training_status_resolves_relative_paths_from_workspace_root(tmp_path: Path) -> None:
+    trainer = tmp_path / "tools" / "train_global_lora.ps1"
+    config = tmp_path / "config" / "training" / "job.json"
+    trainer.parent.mkdir(parents=True)
+    config.parent.mkdir(parents=True)
+    trainer.write_text("param($ConfigPath)", encoding="utf-8")
+    config.write_text("{}", encoding="utf-8")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.get(
+        "/api/training/status",
+        params={
+            "trainer_entrypoint": "tools/train_global_lora.ps1",
+            "config_path": "config/training/job.json",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["trainer_entrypoint_exists"] is True
+    assert response.json()["config_path_exists"] is True
+
+
+def test_clear_pending_training_jobs_endpoint_keeps_completed_packs(tmp_path: Path) -> None:
+    pending_dir = tmp_path / "datasets" / "pending"
+    completed_dir = tmp_path / "datasets" / "completed"
+    pending_dir.mkdir(parents=True)
+    completed_dir.mkdir(parents=True)
+    (pending_dir / "crop.jpg").write_bytes(b"pending")
+    (completed_dir / "crop.jpg").write_bytes(b"completed")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    pending = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "pending",
+                "dataset_path": str(pending_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "pending_pack",
+                "global_pack": True,
+            },
+            "accepted_image_count": 1,
+        },
+    ).json()
+    completed = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "completed",
+                "dataset_path": str(completed_dir),
+                "output_dir": str(tmp_path / "out"),
+                "base_model_path": "base.safetensors",
+                "lora_name": "completed_pack",
+                "global_pack": True,
+            },
+            "accepted_image_count": 1,
+        },
+    ).json()
+    lora_path = tmp_path / "out" / "completed_pack.safetensors"
+    lora_path.parent.mkdir()
+    lora_path.write_text("artifact", encoding="utf-8")
+    register = client.post(
+        f"/api/training/{completed['job_id']}/register-lora",
+        json={"lora_path": str(lora_path)},
+    )
+
+    response = client.delete("/api/training/jobs/pending")
+
+    assert register.status_code == 200
+    assert response.status_code == 200
+    body = response.json()
+    assert body["removed_count"] == 1
+    assert [job["job_id"] for job in body["remaining_jobs"]] == [completed["job_id"]]
+    assert not (tmp_path / "config" / "training" / f"{pending['job_id']}.json").exists()
+    assert (tmp_path / "config" / "training" / f"{completed['job_id']}.json").exists()
 
 
 def test_training_run_starts_trainer_and_registers_completed_lora(tmp_path: Path) -> None:

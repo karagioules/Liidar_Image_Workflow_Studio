@@ -82,7 +82,7 @@ try {
     $frontendPathForCommand = $frontendPath -replace "'", "''"
     $comfyPathForCommand = $comfyPath -replace "'", "''"
     $backendCommand = "Set-Location -LiteralPath '$backendPathForCommand'; $($backendPython.Command) -m uvicorn local_model_studio.main:app --reload --host 127.0.0.1 --port 8000"
-    $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --port 5274"
+    $frontendCommand = "Set-Location -LiteralPath '$frontendPathForCommand'; npm run dev -- --host 127.0.0.1 --port 5274 --strictPort"
     $comfyCommand = "Set-Location -LiteralPath '$comfyPathForCommand'; `"$comfyPython`" main.py --listen 127.0.0.1 --port 8188"
 
     Start-Process powershell.exe -ArgumentList @(

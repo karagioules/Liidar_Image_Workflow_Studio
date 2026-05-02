@@ -293,6 +293,23 @@ class GenerationJobResponse(BaseModel):
     recipe: PromptRecipe
 
 
+GenerationJobState = Literal["queued", "running", "completed", "failed", "unknown"]
+
+
+class GenerationOutputImage(BaseModel):
+    filename: str
+    subfolder: str = ""
+    type: str = "output"
+
+
+class GenerationJobStatus(BaseModel):
+    prompt_id: str
+    status: GenerationJobState
+    queue_position: int | None = None
+    images: list[GenerationOutputImage] = Field(default_factory=list)
+    error: str | None = None
+
+
 class OutputMetadata(BaseModel):
     file_name: str
     character_id: str

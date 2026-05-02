@@ -430,6 +430,10 @@ label,
   display: block;
 }
 
+.full-span {
+  grid-column: 1 / -1;
+}
+
 input,
 select,
 textarea {
@@ -977,6 +981,94 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.generation-jobs-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #253649;
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.compact-heading h3,
+.generation-gallery h3 {
+  margin: 0;
+}
+
+.generation-job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.generation-job-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #0d1520;
+}
+
+.generation-job-card.completed {
+  border-color: #276747;
+}
+
+.generation-job-card.failed {
+  border-color: #743040;
+}
+
+.generation-job-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.generation-job-main div {
+  display: grid;
+  gap: 4px;
+}
+
+.generation-job-main span,
+.generation-job-images span {
+  color: #92a4b8;
+  overflow-wrap: anywhere;
+}
+
+.generation-job-images,
+.generation-gallery > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.generation-job-images a,
+.generation-gallery a {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.generation-job-images img,
+.generation-gallery img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #070b10;
+}
+
+.generation-gallery {
+  display: grid;
+  gap: 10px;
+}
+
 .training-layout {
   display: grid;
   gap: 16px;
@@ -996,6 +1088,11 @@ textarea {
 
 .training-step-strip {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.training-step-strip.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
 }
 
 .training-step-strip div,
@@ -1034,6 +1131,7 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
+  align-items: end;
 }
 
 .check-row {
@@ -1126,43 +1224,6 @@ textarea {
   color: #9fb4c8;
 }
 
-.prep-preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.prep-preview-card {
-  display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  padding: 8px;
-  border: 1px solid #24374a;
-  border-radius: 8px;
-  background: #0b121a;
-}
-
-.prep-preview-card img {
-  width: 70px;
-  height: 70px;
-  border-radius: 6px;
-  object-fit: cover;
-}
-
-.prep-preview-card strong,
-.prep-preview-card span {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.prep-preview-card span {
-  margin-top: 4px;
-  color: #9fb4c8;
-  font-size: 0.82rem;
-}
-
 .preset-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1189,6 +1250,80 @@ textarea {
 .training-job-summary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 14px;
+}
+
+.training-job-summary.compact-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.training-simple-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.training-simple-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.training-field-stack,
+.training-folder-card,
+.training-action-card {
+  display: grid;
+  gap: 12px;
+}
+
+.training-folder-card,
+.training-action-card {
+  padding: 14px;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #0d1520;
+}
+
+.training-folder-card span,
+.training-action-card span {
+  color: #92a4b8;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.training-folder-card small,
+.training-action-card small {
+  color: #92a4b8;
+}
+
+.training-action-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.training-action-card strong {
+  display: block;
+  margin: 3px 0;
+}
+
+.training-library-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.training-library-strip span {
+  padding: 7px 10px;
+  border: 1px solid #253649;
+  border-radius: 999px;
+  background: #0d1520;
+  color: #cfe0ef;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.compact-presets .preset-card {
+  min-height: 58px;
+  padding: 10px 12px;
 }
 
 .learning-result {
@@ -1230,12 +1365,20 @@ textarea {
   background: #0d1520;
 }
 
+.trainer-run-card.simplified {
+  margin-top: 0;
+}
+
 .trainer-run-main,
 .training-run-header {
   display: grid;
   grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+}
+
+.trainer-run-main.compact {
+  grid-template-columns: minmax(180px, 0.4fr) minmax(0, 0.6fr);
 }
 
 .trainer-run-main div {
@@ -1260,6 +1403,49 @@ textarea {
   gap: 10px;
 }
 
+.run-path-details,
+.training-diagnostics {
+  border-top: 1px solid #253649;
+  padding-top: 10px;
+}
+
+.training-diagnostics {
+  margin-top: 12px;
+}
+
+.run-path-details summary,
+.training-diagnostics summary {
+  cursor: pointer;
+  color: #cfe0ef;
+  font-weight: 800;
+}
+
+.training-progress-block {
+  display: grid;
+  gap: 8px;
+}
+
+.progress-track.determinate span {
+  position: static;
+  display: block;
+  min-width: 0;
+  animation: none;
+  transform: none;
+}
+
+.training-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #92a4b8;
+  font-size: 0.84rem;
+}
+
+.training-progress-meta strong {
+  color: #eff6ff;
+}
+
 .training-run-panel.completed {
   border-color: #276747;
 }
@@ -1273,8 +1459,18 @@ textarea {
   padding-top: 10px;
 }
 
+.nested-log-tail {
+  margin-top: 12px;
+}
+
 .log-tail summary {
   cursor: pointer;
+  font-weight: 800;
+}
+
+.nested-log-tail strong {
+  display: block;
+  color: #cfe0ef;
   font-weight: 800;
 }
 
@@ -1341,11 +1537,17 @@ textarea {
   .training-step-strip,
   .preset-grid,
   .training-job-summary,
+  .training-simple-grid,
+  .training-action-card,
   .trainer-run-main,
   .training-run-grid,
   .job-row,
   .count-grid,
   .recipe-box dl {
+    grid-template-columns: 1fr;
+  }
+
+  .generation-job-main {
     grid-template-columns: 1fr;
   }
 

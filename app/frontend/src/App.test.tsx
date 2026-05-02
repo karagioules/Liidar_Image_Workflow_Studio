@@ -143,6 +143,13 @@ describe("App", () => {
           });
         }
 
+        if (url.includes("/api/filesystem/image-count")) {
+          return jsonResponse({
+            path: "H:\\photos\\training-pack",
+            image_count: 12
+          });
+        }
+
         if (url.includes("/api/characters/analyze-references")) {
           return jsonResponse({
             ...character,
@@ -253,6 +260,32 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/api/generate") && method === "POST") {
+          return jsonResponse({
+            prompt_id: "prompt-123",
+            recipe: {
+              positive: "believable still photo, golden hour balcony",
+              negative: "no plastic skin",
+              seed: 42,
+              width: 1024,
+              height: 1024,
+              steps: 30,
+              cfg: 6.5,
+              lora_files: []
+            }
+          });
+        }
+
+        if (url.endsWith("/api/generate/jobs/prompt-123") && method === "GET") {
+          return jsonResponse({
+            prompt_id: "prompt-123",
+            status: "completed",
+            queue_position: null,
+            images: [{ filename: "local_model_studio_00001_.png", subfolder: "", type: "output" }],
+            error: null
+          });
+        }
+
         if (url.endsWith("/api/training/scan")) {
           return jsonResponse({
             dataset_id: "dataset-1",
@@ -316,14 +349,15 @@ describe("App", () => {
           });
         }
 
-        if (url.endsWith("/api/training/learn-job-1/runs") && method === "POST") {
+        if ((url.endsWith("/api/training/learn-job-1/runs") || url.endsWith("/api/training/job-1/runs")) && method === "POST") {
+          const directJob = url.endsWith("/api/training/job-1/runs");
           return jsonResponse({
             run_id: "run-1",
-            job_id: "learn-job-1",
+            job_id: directJob ? "job-1" : "learn-job-1",
             status: "running",
             trainer_entrypoint: "tools/train_global_lora.ps1",
             config_path: "H:\\studio\\config\\training\\learn-job-1.json",
-            output_lora_path: "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
+            output_lora_path: directJob ? "outputs/lora\\ari_style.safetensors" : "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
             process_id: 4242,
             exit_code: null,
             log_path: "H:\\studio\\logs\\training-run-1.log",
@@ -335,11 +369,11 @@ describe("App", () => {
         if (url.endsWith("/api/training/runs/run-1") && method === "GET") {
           return jsonResponse({
             run_id: "run-1",
-            job_id: "learn-job-1",
+            job_id: "job-1",
             status: "completed",
             trainer_entrypoint: "tools/train_global_lora.ps1",
             config_path: "H:\\studio\\config\\training\\learn-job-1.json",
-            output_lora_path: "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
+            output_lora_path: "outputs/lora\\ari_style.safetensors",
             process_id: 4242,
             exit_code: 0,
             log_path: "H:\\studio\\logs\\training-run-1.log",
@@ -363,8 +397,8 @@ describe("App", () => {
             fallback_count: 0,
             active_file: "H:\\raw\\one.jpg",
             output_folder: null,
-            scan_mode: "claude",
-            use_ai: true,
+            scan_mode: "local",
+            use_ai: false,
             ai_max_images: 25,
             cancel_requested: false,
             error: null,
@@ -387,8 +421,8 @@ describe("App", () => {
             fallback_count: 1,
             active_file: null,
             output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
-            scan_mode: "claude",
-            use_ai: true,
+            scan_mode: "local",
+            use_ai: false,
             ai_max_images: 25,
             cancel_requested: false,
             error: null,
@@ -411,8 +445,8 @@ describe("App", () => {
                   height: 1200,
                   face_count: 1,
                   accepted: true,
-                  reason: "chest detail crop from Claude AI scan",
-                  method: "ai_guided",
+                  reason: "chest detail crop from local AI scan",
+                  method: "local_ai",
                   crop_box: [10, 120, 700, 760]
                 }
               ]
@@ -646,44 +680,45 @@ describe("App", () => {
     expect(await screen.findByText("believable still photo, golden hour balcony")).toBeInTheDocument();
   });
 
-  it("renders training controls and scan counts", async () => {
+  it("tracks queued generation jobs through completed outputs", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: /queue generation/i }));
+
+    expect(await screen.findByText("Queued still photo job prompt-123.")).toBeInTheDocument();
+    expect(screen.getByText("Generation jobs")).toBeInTheDocument();
+    expect(await screen.findByText("local_model_studio_00001_.png")).toBeInTheDocument();
+    expect(screen.getByText("Completed outputs")).toBeInTheDocument();
+  });
+
+  it("renders simplified training controls for prepared crop folders", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
     expect(screen.getByText("Global improvement training")).toBeInTheDocument();
-    expect(screen.getByLabelText("Training folder")).toBeInTheDocument();
+    expect(screen.getByLabelText("Prepared crop folder")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Improvement type" })).toHaveTextContent("Body proportions");
-    expect(screen.queryByLabelText("Data rights")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scan data pack")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scan review")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /select folder/i }));
-    expect(await screen.findByDisplayValue("H:\\photos\\training-pack")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /scan data pack/i }));
-
+    expect((await screen.findAllByDisplayValue("H:\\photos\\training-pack")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("12")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("3").length).toBeGreaterThan(0);
-    expect(screen.getByText("Skipped unreadable image.")).toBeInTheDocument();
   });
 
-  it("prepares dataset crops with optional Claude key controls", async () => {
+  it("prepares dataset crops with local AI controls only", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
     expect(screen.getByRole("heading", { name: "Dataset prep", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Crop target" })).toHaveTextContent("Chest detail");
-    expect(screen.getByText("Local AI scanning is free and runs on this PC.")).toBeInTheDocument();
-
-    await user.selectOptions(screen.getByLabelText("Scanner"), "claude");
-    expect(screen.getByText("No Claude key saved.")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("API key"), "sk-ant-test");
-    await user.click(screen.getByRole("button", { name: /save key/i }));
-    expect(await screen.findByText(/Claude key saved/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /test key/i }));
-    expect((await screen.findAllByText(/model not found/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText("Local AI scanning runs on this PC.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Scanner")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Source folder"));
     await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
@@ -691,9 +726,9 @@ describe("App", () => {
 
     expect(await screen.findByRole("progressbar", { name: /dataset prep progress/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
-    expect(await screen.findByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).toBeInTheDocument();
-    expect(screen.getByText("Claude crop")).toBeInTheDocument();
-    expect(screen.getByText("chest detail crop from Claude AI scan")).toBeInTheDocument();
+    expect((await screen.findAllByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Local AI crop")).not.toBeInTheDocument();
+    expect(screen.queryByText("chest detail crop from local AI scan")).not.toBeInTheDocument();
   });
 
   it("uses backend config path and surfaces trainer warnings", async () => {
@@ -702,10 +737,9 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
     await user.click(screen.getByRole("button", { name: /select folder/i }));
-    await user.click(screen.getByRole("button", { name: /scan data pack/i }));
-    await user.click(await screen.findByRole("button", { name: /create global training job/i }));
+    await user.click(await screen.findByRole("button", { name: /create training job/i }));
 
-    expect(await screen.findByText(/Global pack job job-1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Training job ready: ari_style/i)).toBeInTheDocument();
 
     await user.click(screen.getByText("Advanced trainer details"));
     expect(await screen.findByDisplayValue("H:\\studio\\config\\training\\job-1.json")).toBeInTheDocument();
@@ -714,17 +748,19 @@ describe("App", () => {
     expect(await screen.findByText("Trainer entrypoint is missing: train_network.py")).toBeInTheDocument();
   });
 
-  it("creates one-click global learning jobs from a raw folder", async () => {
+  it("uses the latest dataset prep folder for training", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Training" }));
-    await user.click(screen.getByRole("button", { name: /select folder/i }));
-    await user.click(screen.getByRole("button", { name: /build global learning job/i }));
+    await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
+    await user.clear(screen.getByLabelText("Source folder"));
+    await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
+    await user.click(screen.getByRole("button", { name: /create crop folder/i }));
+    expect((await screen.findAllByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
 
-    expect(await screen.findByText(/global_body_pack_v001 is ready for trainer launch/i)).toBeInTheDocument();
-    expect(screen.getByText("H:\\Desktop\\Liidar_Dataset_Crops\\learn-1")).toBeInTheDocument();
-    expect(screen.getByText("Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it.")).toBeInTheDocument();
+    await user.click(await screen.findByRole("tab", { name: "Training" }));
+    expect((await screen.findAllByDisplayValue("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
+    expect(screen.getByText("8")).toBeInTheDocument();
   });
 
   it("starts and monitors a local global training run", async () => {
@@ -733,13 +769,13 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
     await user.click(screen.getByRole("button", { name: /select folder/i }));
-    await user.click(screen.getByRole("button", { name: /build global learning job/i }));
-    await screen.findByText(/global_body_pack_v001 is ready for trainer launch/i);
+    await user.click(screen.getByRole("button", { name: /create training job/i }));
+    await screen.findByText(/Training job ready: ari_style/i);
 
     await user.click(screen.getByRole("button", { name: /start training now/i }));
 
-    expect(await screen.findByText("Training started for global_body_pack_v001.")).toBeInTheDocument();
+    expect(await screen.findByText("Training started for ari_style.")).toBeInTheDocument();
     expect(screen.getByText("PID 4242")).toBeInTheDocument();
-    expect(screen.getAllByText("H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("outputs/lora\\ari_style.safetensors").length).toBeGreaterThan(0);
   });
 });

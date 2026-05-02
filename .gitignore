@@ -22,6 +22,8 @@ logs/
 .frontend.pid
 .comfy.pid
 tools/sd-scripts/
+config/training/
+config/training_datasets/
 config/characters/*.json
 !config/characters/.gitkeep
 config/secrets/

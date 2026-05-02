@@ -5,16 +5,15 @@ import { api } from "./api";
 import type {
   AdultAgeCategory,
   AdultContentSignals,
-  ApiKeyTestResponse,
   AttributeDetail,
   CharacterProfile,
   DatasetPrepJobStatus,
   DatasetPrepResponse,
-  DatasetPrepScanMode,
   DatasetPrepTarget,
   DatasetScanReport,
   DatasetType,
   FacePolicy,
+  GenerationJobStatus,
   GenerationMode,
   GlobalLearningResponse,
   PromptRecipe,
@@ -30,6 +29,7 @@ import type {
 
 type TabId = "runtime" | "characters" | "generate" | "training" | "prep";
 type TrainingPreset = "fast" | "balanced" | "high_quality";
+type TrackedGenerationJob = GenerationJobStatus & { recipe: PromptRecipe };
 
 const blankCharacter: CharacterProfile = {
   id: "new-character",
@@ -71,7 +71,6 @@ const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
 const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
 const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
 const prepTargets: DatasetPrepTarget[] = ["chest_detail", "upper_torso", "full_body_context"];
-const prepScanModes: DatasetPrepScanMode[] = ["local", "claude", "off"];
 const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
   { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
   { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
@@ -129,28 +128,14 @@ function prepTargetLabel(value: DatasetPrepTarget) {
   return labels[value];
 }
 
-function prepScanModeLabel(value: DatasetPrepScanMode) {
-  const labels: Record<DatasetPrepScanMode, string> = {
-    local: "Local AI scan (free)",
-    claude: "Claude fallback (paid)",
-    off: "Simple crop only"
-  };
-  return labels[value];
-}
-
 function trainingPresetSettings(preset: TrainingPreset) {
   if (preset === "fast") {
-    return { max_train_steps: 600, learning_rate: 0.0001, network_dim: 16, network_alpha: 8, repeats: 6 };
+    return { resolution: 640, max_train_steps: 450, learning_rate: 0.0001, network_dim: 16, network_alpha: 8, repeats: 4 };
   }
   if (preset === "high_quality") {
-    return { max_train_steps: 1800, learning_rate: 0.00008, network_dim: 64, network_alpha: 32, repeats: 12 };
+    return { resolution: 896, max_train_steps: 1200, learning_rate: 0.00008, network_dim: 32, network_alpha: 16, repeats: 8 };
   }
-  return { max_train_steps: 1200, learning_rate: 0.0001, network_dim: 32, network_alpha: 16, repeats: 10 };
-}
-
-function aiCostEstimate(imageCount: number) {
-  const count = Math.max(0, imageCount);
-  return `$${(count * 0.0008).toFixed(2)}-$${(count * 0.0016).toFixed(2)}`;
+  return { resolution: 768, max_train_steps: 900, learning_rate: 0.0001, network_dim: 32, network_alpha: 16, repeats: 6 };
 }
 
 function packNameFromDataset(name: string, type: DatasetType) {
@@ -160,6 +145,27 @@ function packNameFromDataset(name: string, type: DatasetType) {
 
 function upsertTrainingRun(runs: TrainingRunStatus[], run: TrainingRunStatus) {
   return [...runs.filter((item) => item.run_id !== run.run_id), run];
+}
+
+function keepLastTrainingProgress(next: TrainingRunStatus, previous: TrainingRunStatus | null): TrainingRunStatus {
+  if (
+    previous?.run_id !== next.run_id ||
+    next.progress_current !== null ||
+    next.progress_total !== null ||
+    next.progress_percent !== null
+  ) {
+    return next;
+  }
+  return {
+    ...next,
+    progress_current: previous.progress_current,
+    progress_total: previous.progress_total,
+    progress_percent: previous.progress_percent
+  };
+}
+
+function upsertGenerationJob(jobs: TrackedGenerationJob[], job: TrackedGenerationJob) {
+  return [job, ...jobs.filter((item) => item.prompt_id !== job.prompt_id)].slice(0, 12);
 }
 
 function App() {
@@ -177,6 +183,7 @@ function App() {
   const [quality, setQuality] = useState<QualityPreset>("balanced");
   const [scenePrompt, setScenePrompt] = useState("soft natural light, believable still photo");
   const [extraNegative, setExtraNegative] = useState("");
+  const [generationJobs, setGenerationJobs] = useState<TrackedGenerationJob[]>([]);
 
   const [datasetName, setDatasetName] = useState("global-body-pack");
   const [sourceFolder, setSourceFolder] = useState("");
@@ -187,7 +194,7 @@ function App() {
   const [baseModelPath, setBaseModelPath] = useState("models/sdxl_base_1.0.safetensors");
   const [loraName, setLoraName] = useState("global_body_pack");
   const [outputDir, setOutputDir] = useState("outputs/global_lora");
-  const [acceptedImageCount, setAcceptedImageCount] = useState(1);
+  const [acceptedImageCount, setAcceptedImageCount] = useState(0);
   const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("balanced");
   const [trainingJob, setTrainingJob] = useState<TrainingJobConfig | null>(null);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJobConfig[]>([]);
@@ -203,12 +210,6 @@ function App() {
   const [prepOutputFolder, setPrepOutputFolder] = useState("");
   const [prepTarget, setPrepTarget] = useState<DatasetPrepTarget>("chest_detail");
   const [prepRecursive, setPrepRecursive] = useState(true);
-  const [prepScanMode, setPrepScanMode] = useState<DatasetPrepScanMode>("local");
-  const [prepAiMaxImages, setPrepAiMaxImages] = useState(100);
-  const [anthropicKeySaved, setAnthropicKeySaved] = useState(false);
-  const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
-  const [anthropicModel, setAnthropicModel] = useState("claude-haiku-4-5-20251001");
-  const [anthropicKeyTest, setAnthropicKeyTest] = useState<ApiKeyTestResponse | null>(null);
   const [prepReport, setPrepReport] = useState<DatasetPrepResponse | null>(null);
   const [prepJob, setPrepJob] = useState<DatasetPrepJobStatus | null>(null);
   const [isPreparingDataset, setIsPreparingDataset] = useState(false);
@@ -216,6 +217,12 @@ function App() {
   useEffect(() => {
     void loadInitialData();
   }, []);
+
+  useEffect(() => {
+    if (loraName === "global_body_pack" && datasetName.trim() && datasetName !== "global-body-pack") {
+      setLoraName(packNameFromDataset(datasetName, datasetType));
+    }
+  }, [datasetName, datasetType, loraName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +270,10 @@ function App() {
         if (status.result) {
           setPrepReport(status.result);
           setPrepOutputFolder(status.result.output_folder);
+          setSourceFolder(status.result.output_folder);
+          setDatasetPath(status.result.output_folder);
+          setAcceptedImageCount(status.result.cropped_count);
+          setLoraName(packNameFromDataset(datasetName, datasetType));
         }
         if (["completed", "cancelled", "failed"].includes(status.status)) {
           setIsPreparingDataset(false);
@@ -300,19 +311,20 @@ function App() {
         if (cancelled) {
           return;
         }
-        setTrainingRun(status);
-        setTrainingRuns((current) => upsertTrainingRun(current, status));
-        if (!["queued", "running"].includes(status.status)) {
+        const stableStatus = keepLastTrainingProgress(status, trainingRun);
+        setTrainingRun(stableStatus);
+        setTrainingRuns((current) => upsertTrainingRun(current, stableStatus));
+        if (!["queued", "running"].includes(stableStatus.status)) {
           setIsTrainingRunning(false);
-          if (status.status === "completed") {
+          if (stableStatus.status === "completed") {
             setMessage("Global training completed and the new pack is active for future generations.");
             setTrainingJobs(await api.trainingJobs());
           }
-          if (status.status === "cancelled") {
+          if (stableStatus.status === "cancelled") {
             setMessage("Training run cancelled.");
           }
-          if (status.status === "failed") {
-            setError(status.error ?? "Training run failed. Check the log tail below.");
+          if (stableStatus.status === "failed") {
+            setError(stableStatus.error ?? "Training run failed. Check the log tail below.");
           }
         }
       } catch (caught) {
@@ -328,6 +340,42 @@ function App() {
     };
   }, [trainingRun]);
 
+  useEffect(() => {
+    const activeJobs = generationJobs.filter((job) => ["queued", "running", "unknown"].includes(job.status));
+    if (!activeJobs.length) {
+      return;
+    }
+    let cancelled = false;
+    const pollJobs = async () => {
+      const updates = await Promise.allSettled(activeJobs.map((job) => api.generationJob(job.prompt_id)));
+      if (cancelled) {
+        return;
+      }
+      setGenerationJobs((current) => {
+        let next = current;
+        updates.forEach((result, index) => {
+          const originalJob = activeJobs[index];
+          if (result.status === "fulfilled") {
+            next = upsertGenerationJob(next, { ...result.value, recipe: originalJob.recipe });
+          } else {
+            next = upsertGenerationJob(next, {
+              ...originalJob,
+              status: "unknown",
+              error: result.reason instanceof Error ? result.reason.message : "Unable to read generation status."
+            });
+          }
+        });
+        return next;
+      });
+    };
+    void pollJobs();
+    const intervalId = window.setInterval(() => void pollJobs(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [generationJobs]);
+
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? characters[0],
     [characters, selectedCharacterId]
@@ -336,17 +384,14 @@ function App() {
   async function loadInitialData() {
     try {
       setError("");
-      const [runtimeStatus, profiles, keyStatus, jobs, runs] = await Promise.all([
+      const [runtimeStatus, profiles, jobs, runs] = await Promise.all([
         api.runtime(),
         api.characters(),
-        api.anthropicKeyStatus(),
         api.trainingJobs(),
         api.trainingRuns()
       ]);
       setRuntime(runtimeStatus);
       setCharacters(profiles);
-      setAnthropicKeySaved(keyStatus.saved);
-      setAnthropicModel(keyStatus.model);
       setTrainingJobs(jobs);
       setTrainingRuns(runs);
       const activeRun = [...runs].reverse().find((run) => ["queued", "running"].includes(run.status)) ?? runs[runs.length - 1] ?? null;
@@ -359,6 +404,7 @@ function App() {
         setDatasetPath(latestPendingJob.dataset_path);
         setOutputDir(latestPendingJob.output_dir);
         setLoraName(latestPendingJob.lora_name);
+        setAcceptedImageCount(latestPendingJob.accepted_image_count);
       }
       if (profiles[0]) {
         setSelectedCharacterId(profiles[0].id);
@@ -409,6 +455,16 @@ function App() {
       setError("");
       const result = await api.queueGeneration(generationPayload());
       setRecipe(result.recipe);
+      setGenerationJobs((current) =>
+        upsertGenerationJob(current, {
+          prompt_id: result.prompt_id,
+          status: "queued",
+          queue_position: null,
+          images: [],
+          error: null,
+          recipe: result.recipe
+        })
+      );
       setMessage(`Queued still photo job ${result.prompt_id}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to queue generation.");
@@ -442,6 +498,9 @@ function App() {
       const result = await api.selectFolder();
       if (result.folder_path) {
         setSourceFolder(result.folder_path);
+        setDatasetPath(result.folder_path);
+        const count = await api.imageCount(result.folder_path);
+        setAcceptedImageCount(count.image_count);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to select training folder.");
@@ -475,10 +534,10 @@ function App() {
         output_folder: prepOutputFolder.trim() ? prepOutputFolder : null,
         target: prepTarget,
         recursive: prepRecursive,
-        scan_mode: prepScanMode,
-        use_ai: prepScanMode === "claude",
-        ai_max_images: prepAiMaxImages,
-        ai_model: anthropicModel
+        scan_mode: "local",
+        use_ai: false,
+        ai_max_images: 0,
+        ai_model: ""
       });
       setPrepJob(job);
     } catch (caught) {
@@ -500,55 +559,31 @@ function App() {
     }
   }
 
-  async function saveAnthropicKey() {
-    try {
-      setError("");
-      const status = await api.saveAnthropicKey(anthropicKeyInput, anthropicModel);
-      setAnthropicKeySaved(status.saved);
-      setAnthropicModel(status.model);
-      setAnthropicKeyInput("");
-      setMessage("Claude API key saved locally.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to save Claude API key.");
-    }
-  }
-
-  async function removeAnthropicKey() {
-    try {
-      setError("");
-      const status = await api.deleteAnthropicKey();
-      setAnthropicKeySaved(status.saved);
-      setMessage("Claude API key removed.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to remove Claude API key.");
-    }
-  }
-
-  async function testAnthropicKey() {
-    try {
-      setError("");
-      const result = await api.testAnthropicKey();
-      setAnthropicKeyTest(result);
-      setMessage(result.message);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to test Claude API key.");
-    }
-  }
-
   async function createTrainingConfig() {
     try {
       setError("");
+      const trainingFolder = (datasetPath || sourceFolder).trim();
+      if (!trainingFolder) {
+        throw new Error("Select a prepared crop folder before creating a training job.");
+      }
+      const counted = await api.imageCount(trainingFolder);
+      if (counted.image_count <= 0) {
+        throw new Error("The selected training folder does not contain any images.");
+      }
+      setDatasetPath(trainingFolder);
+      setAcceptedImageCount(counted.image_count);
       const preset = trainingPresetSettings(trainingPreset);
+      const packName = (loraName || packNameFromDataset(datasetName, datasetType)).trim();
       const job = await api.createTrainingConfig({
         request: {
           dataset_id: scanReport?.dataset_id || datasetName,
-          dataset_path: datasetPath || sourceFolder,
+          dataset_path: trainingFolder,
           output_dir: outputDir,
           base_model_path: baseModelPath,
-          lora_name: loraName || packNameFromDataset(datasetName, datasetType),
+          lora_name: packName,
           dataset_type: datasetType,
           global_pack: true,
-          resolution: 1024,
+          resolution: preset.resolution,
           repeats: preset.repeats,
           batch_size: 1,
           max_train_steps: preset.max_train_steps,
@@ -556,8 +591,9 @@ function App() {
           network_dim: preset.network_dim,
           network_alpha: preset.network_alpha
         },
-        accepted_image_count: acceptedImageCount
+        accepted_image_count: counted.image_count
       });
+      setLoraName(job.lora_name);
       setTrainingJob(job);
       setTrainingJobs((current) => [...current.filter((item) => item.job_id !== job.job_id), job]);
       setTrainerConfigPath(job.config_path ?? "");
@@ -641,6 +677,33 @@ function App() {
     }
   }
 
+  async function clearPendingTrainingJobs() {
+    const activeRun = trainingRun && ["queued", "running"].includes(trainingRun.status);
+    if (activeRun) {
+      setError("Cancel or finish the current training run before clearing pending jobs.");
+      return;
+    }
+    try {
+      setError("");
+      setMessage("");
+      const result = await api.clearPendingTrainingJobs();
+      const remainingJobs = result.remaining_jobs;
+      const latestPendingJob = [...remainingJobs].reverse().find((job) => job.global_pack && !job.completed_lora_path) ?? null;
+      const selectedStillExists = trainingJob ? remainingJobs.some((job) => job.job_id === trainingJob.job_id) : false;
+      setTrainingJobs(remainingJobs);
+      if (!selectedStillExists) {
+        setTrainingJob(latestPendingJob);
+        setTrainerConfigPath(latestPendingJob?.config_path ?? "");
+      }
+      if (trainingRun && !remainingJobs.some((job) => job.job_id === trainingRun.job_id)) {
+        setTrainingRun(null);
+      }
+      setMessage(`Cleared ${result.removed_count} pending training job${result.removed_count === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to clear pending training jobs.");
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -709,6 +772,7 @@ function App() {
             scenePrompt={scenePrompt}
             extraNegative={extraNegative}
             recipe={recipe}
+            generationJobs={generationJobs}
             onCharacterChange={setSelectedCharacterId}
             onModeChange={setMode}
             onQualityChange={setQuality}
@@ -759,6 +823,7 @@ function App() {
             onCreateConfig={createTrainingConfig}
             onStartTraining={() => void startTrainingRun()}
             onCancelTraining={() => void cancelTrainingRun()}
+            onClearPendingJobs={() => void clearPendingTrainingJobs()}
             onCheckStatus={checkTrainerStatus}
           />
         ) : null}
@@ -768,12 +833,6 @@ function App() {
             outputFolder={prepOutputFolder}
             target={prepTarget}
             recursive={prepRecursive}
-            scanMode={prepScanMode}
-            aiMaxImages={prepAiMaxImages}
-            anthropicKeySaved={anthropicKeySaved}
-            anthropicKeyInput={anthropicKeyInput}
-            anthropicModel={anthropicModel}
-            anthropicKeyTest={anthropicKeyTest}
             report={prepReport}
             job={prepJob}
             isPreparing={isPreparingDataset}
@@ -781,12 +840,6 @@ function App() {
             onOutputFolderChange={setPrepOutputFolder}
             onTargetChange={setPrepTarget}
             onRecursiveChange={setPrepRecursive}
-            onScanModeChange={setPrepScanMode}
-            onAiMaxImagesChange={setPrepAiMaxImages}
-            onAnthropicKeyInputChange={setAnthropicKeyInput}
-            onSaveAnthropicKey={() => void saveAnthropicKey()}
-            onRemoveAnthropicKey={() => void removeAnthropicKey()}
-            onTestAnthropicKey={() => void testAnthropicKey()}
             onSelectSource={() => void selectPrepFolder("source")}
             onSelectOutput={() => void selectPrepFolder("output")}
             onRun={() => void runDatasetPrep()}
@@ -977,6 +1030,7 @@ function GeneratePanel(props: {
   scenePrompt: string;
   extraNegative: string;
   recipe: PromptRecipe | null;
+  generationJobs: TrackedGenerationJob[];
   onCharacterChange: (id: string) => void;
   onModeChange: (mode: GenerationMode) => void;
   onQualityChange: (quality: QualityPreset) => void;
@@ -1036,6 +1090,71 @@ function GeneratePanel(props: {
           </dl>
         </div>
       ) : null}
+      <GenerationJobsPanel jobs={props.generationJobs} />
+    </section>
+  );
+}
+
+function GenerationJobsPanel({ jobs }: { jobs: TrackedGenerationJob[] }) {
+  const completedImages = jobs.flatMap((job) => job.images.map((image) => ({ job, image })));
+
+  return (
+    <section className="generation-jobs-panel" aria-label="Generation jobs">
+      <div className="panel-heading compact-heading">
+        <h3>Generation jobs</h3>
+        <p>Queued ComfyUI jobs and completed local outputs.</p>
+      </div>
+      {jobs.length ? (
+        <div className="generation-job-list">
+          {jobs.map((job) => {
+            const isActive = ["queued", "running", "unknown"].includes(job.status);
+            return (
+              <article className={`generation-job-card ${job.status}`} key={job.prompt_id}>
+                <div className="generation-job-main">
+                  <div>
+                    <strong>{labelize(job.status)}</strong>
+                    <span>{job.prompt_id}</span>
+                  </div>
+                  <div>
+                    <span>{job.queue_position ? `Queue position ${job.queue_position}` : `${job.recipe.width} x ${job.recipe.height}`}</span>
+                    <span>{job.recipe.steps} steps · CFG {job.recipe.cfg}</span>
+                  </div>
+                </div>
+                {isActive ? (
+                  <div className="progress-track" role="progressbar" aria-label={`Generation ${job.prompt_id}`}>
+                    <span />
+                  </div>
+                ) : null}
+                {job.error ? <div className="inline-error">{job.error}</div> : null}
+                {job.images.length ? (
+                  <div className="generation-job-images">
+                    {job.images.map((image) => (
+                      <a href={api.generatedImageUrl(image)} target="_blank" rel="noreferrer" key={`${job.prompt_id}-${image.filename}`}>
+                        <img src={api.generatedImageUrl(image)} alt={image.filename} />
+                        <span>{image.filename}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="empty-analysis-note">No queued jobs yet.</p>
+      )}
+      {completedImages.length ? (
+        <div className="generation-gallery">
+          <h3>Completed outputs</h3>
+          <div>
+            {completedImages.slice(0, 12).map(({ job, image }) => (
+              <a href={api.generatedImageUrl(image)} target="_blank" rel="noreferrer" key={`${job.prompt_id}-${image.filename}-gallery`}>
+                <img src={api.generatedImageUrl(image)} alt={image.filename} />
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1045,12 +1164,6 @@ function DatasetPrepPanel(props: {
   outputFolder: string;
   target: DatasetPrepTarget;
   recursive: boolean;
-  scanMode: DatasetPrepScanMode;
-  aiMaxImages: number;
-  anthropicKeySaved: boolean;
-  anthropicKeyInput: string;
-  anthropicModel: string;
-  anthropicKeyTest: ApiKeyTestResponse | null;
   report: DatasetPrepResponse | null;
   job: DatasetPrepJobStatus | null;
   isPreparing: boolean;
@@ -1058,31 +1171,17 @@ function DatasetPrepPanel(props: {
   onOutputFolderChange: (value: string) => void;
   onTargetChange: (value: DatasetPrepTarget) => void;
   onRecursiveChange: (value: boolean) => void;
-  onScanModeChange: (value: DatasetPrepScanMode) => void;
-  onAiMaxImagesChange: (value: number) => void;
-  onAnthropicKeyInputChange: (value: string) => void;
-  onSaveAnthropicKey: () => void;
-  onRemoveAnthropicKey: () => void;
-  onTestAnthropicKey: () => void;
   onSelectSource: () => void;
   onSelectOutput: () => void;
   onRun: () => void;
   onCancel: () => void;
 }) {
-  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing && (props.scanMode !== "claude" || props.anthropicKeySaved);
-  const previewImages = props.report?.images.filter((image) => image.accepted).slice(0, 12) ?? [];
+  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing;
   const progressTotal = props.job?.total_count ?? 0;
   const progressProcessed = props.job?.processed_count ?? 0;
   const progressPercent = progressTotal > 0 ? Math.round((progressProcessed / progressTotal) * 100) : props.isPreparing ? 4 : 0;
   const isCancelable = Boolean(props.job && ["queued", "running", "cancelling"].includes(props.job.status));
-  const aiModeText =
-    props.scanMode === "local"
-      ? "Local AI scan is active. It uses the local NudeNet detector and writes only crops with a usable detected target."
-      : props.scanMode === "claude"
-        ? props.anthropicKeySaved
-          ? `Claude fallback is active for up to ${props.aiMaxImages} image${props.aiMaxImages === 1 ? "" : "s"}; estimated scan cost ${aiCostEstimate(props.aiMaxImages)}.`
-          : "Claude fallback is selected but no saved key is available."
-        : "Detection is off. This run will use simple local fallback crops.";
+  const aiModeText = "Local AI scan is active. It uses the local detector and writes only crops with a usable detected target.";
   return (
     <section className="training-layout dataset-prep-layout">
       <div className="panel training-overview">
@@ -1136,72 +1235,12 @@ function DatasetPrepPanel(props: {
         <section className="api-key-panel">
           <div className="panel-heading">
             <h3>Detection mode</h3>
-            <p>Local AI is the default free path. Claude remains available only as a paid fallback.</p>
+            <p>Dataset prep always uses the local scanner on this PC.</p>
           </div>
-          <div className="form-grid two-column">
-            <label>
-              Scanner
-              <select value={props.scanMode} onChange={(event) => props.onScanModeChange(event.target.value as DatasetPrepScanMode)}>
-                {prepScanModes.map((mode) => <option key={mode} value={mode}>{prepScanModeLabel(mode)}</option>)}
-              </select>
-            </label>
-            {props.scanMode === "claude" ? (
-              <label>
-                Max Claude images
-                <input
-                  type="number"
-                  min="0"
-                  max="500"
-                  value={props.aiMaxImages}
-                  onChange={(event) => props.onAiMaxImagesChange(Number(event.target.value))}
-                />
-              </label>
-            ) : null}
+          <div className="inline-status ok">
+            <CheckCircle2 aria-hidden="true" />
+            <span>Local AI scanning runs on this PC.</span>
           </div>
-          {props.scanMode === "claude" ? (
-            <>
-              <div className="form-grid two-column">
-                <label>
-                  API key
-                  <input
-                    type="password"
-                    value={props.anthropicKeyInput}
-                    onChange={(event) => props.onAnthropicKeyInputChange(event.target.value)}
-                    placeholder={props.anthropicKeySaved ? "Saved key active" : "Paste Anthropic API key"}
-                  />
-                </label>
-              </div>
-              <div className="actions compact-actions">
-                <button type="button" className="secondary-button" onClick={props.onSaveAnthropicKey} disabled={!props.anthropicKeyInput.trim()}>
-                  <Save aria-hidden="true" />
-                  Save key
-                </button>
-                <button type="button" className="secondary-button" onClick={props.onRemoveAnthropicKey} disabled={!props.anthropicKeySaved}>
-                  <X aria-hidden="true" />
-                  Remove key
-                </button>
-                <button type="button" className="secondary-button" onClick={props.onTestAnthropicKey} disabled={!props.anthropicKeySaved}>
-                  <Search aria-hidden="true" />
-                  Test key
-                </button>
-              </div>
-              <div className={props.anthropicKeySaved ? "inline-status ok" : "inline-status warning"}>
-                {props.anthropicKeySaved ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-                <span>{props.anthropicKeySaved ? `Claude key saved. Model: ${props.anthropicModel}` : "No Claude key saved."}</span>
-              </div>
-              {props.anthropicKeyTest ? (
-                <div className={props.anthropicKeyTest.ok ? "inline-status ok" : "inline-status warning"}>
-                  {props.anthropicKeyTest.ok ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-                  <span>{props.anthropicKeyTest.message}</span>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="inline-status ok">
-              <CheckCircle2 aria-hidden="true" />
-              <span>{props.scanMode === "local" ? "Local AI scanning is free and runs on this PC." : "Simple fallback mode is selected."}</span>
-            </div>
-          )}
         </section>
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
@@ -1226,9 +1265,7 @@ function DatasetPrepPanel(props: {
             </div>
             <div className="prep-progress-meta">
               <span>
-                {props.job.use_ai
-                  ? `${prepScanModeLabel(props.job.scan_mode)}: ${props.job.ai_attempted_count} attempted, ${props.job.ai_guided_count} succeeded, ${props.job.ai_failed_count} skipped`
-                  : "AI scan off: simple local cropping only"}
+                Local AI scan: {props.job.cropped_count} crops saved, {props.job.skipped_count} skipped
               </span>
               <span>{props.job.fallback_count} fallback crop{props.job.fallback_count === 1 ? "" : "s"}</span>
               {props.job.active_file ? <span>Current: {props.job.active_file}</span> : null}
@@ -1247,26 +1284,10 @@ function DatasetPrepPanel(props: {
           <div className="count-grid">
             <Metric label="Processed" value={props.report.processed_count} />
             <Metric label="Cropped" value={props.report.cropped_count} />
-            <Metric label="AI attempted" value={props.report.ai_attempted_count} />
-            <Metric label="AI-guided" value={props.report.ai_guided_count} />
-            <Metric label="AI failed" value={props.report.ai_failed_count} />
-            <Metric label="Face-guided" value={props.report.face_guided_count} />
-            <Metric label="Fallback" value={props.report.fallback_count} />
+            <Metric label="Skipped" value={props.report.skipped_count} />
+            <Metric label="Output folder" value={props.report.output_folder} />
           </div>
           {props.report.warnings.length ? <WarningList warnings={props.report.warnings} /> : null}
-          {previewImages.length ? (
-            <div className="prep-preview-grid">
-              {previewImages.map((image) => (
-                <article className="prep-preview-card" key={image.output_path ?? image.source_path}>
-                  {image.output_path ? <img src={api.thumbnailUrl(image.output_path)} alt="" /> : null}
-                  <div>
-                    <strong>{image.method === "local_ai" ? "Local AI crop" : image.method === "ai_guided" ? "Claude crop" : image.method === "face_guided" ? "Face-guided crop" : "Fallback crop"}</strong>
-                    <span>{image.reason}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </section>
@@ -1313,91 +1334,120 @@ function TrainingPanel(props: {
   onCreateConfig: () => void;
   onStartTraining: () => void;
   onCancelTraining: () => void;
+  onClearPendingJobs: () => void;
   onCheckStatus: () => void;
 }) {
-  const hasAcceptedImages = Boolean(props.scanReport && props.scanReport.accepted_count > 0);
+  const trainingFolder = props.datasetPath || props.sourceFolder;
+  const hasTrainingFolder = Boolean(trainingFolder.trim());
   const globalPackName = props.loraName || packNameFromDataset(props.datasetName, props.datasetType);
   const completedGlobalPacks = props.trainingJobs.filter((job) => job.global_pack && job.completed_lora_path);
   const pendingGlobalJobs = props.trainingJobs.filter((job) => job.global_pack && !job.completed_lora_path);
   const latestCompletedPack = completedGlobalPacks.length ? completedGlobalPacks[completedGlobalPacks.length - 1] : null;
   const activeRun = props.trainingRun;
   const runIsActive = Boolean(activeRun && ["queued", "running"].includes(activeRun.status));
+  const setupSaved = Boolean(props.trainingJob && props.trainingJob.lora_name === globalPackName);
+  const primaryActionLabel = runIsActive ? "Training running" : setupSaved ? "Start training" : "Save training setup";
+  const primaryAction = setupSaved ? props.onStartTraining : props.onCreateConfig;
+  const setupStatus = runIsActive
+    ? "Training is running"
+    : setupSaved
+      ? `${globalPackName} is ready to train`
+      : "Save the setup before training";
 
   return (
     <section className="training-layout global-training">
-      <div className="panel training-overview">
+      <div className="panel training-simple-panel">
         <div className="panel-heading">
-          <h2>Global improvement training</h2>
-          <p>Reusable training packs that can improve future generations across the studio.</p>
+          <h2>Train a global pack</h2>
+          <p>Select prepared crops, name what this pack teaches, then let the app handle the trainer.</p>
         </div>
-        <div className="training-step-strip">
-          <div className="active"><strong>1</strong><span>Choose data</span></div>
-          <div className={props.scanReport ? "active" : ""}><strong>2</strong><span>Review scan</span></div>
-          <div className={props.trainingJob ? "active" : ""}><strong>3</strong><span>Create global job</span></div>
-          <div className={latestCompletedPack ? "active" : ""}><strong>4</strong><span>Train and activate</span></div>
-        </div>
-      </div>
 
-      <div className="panel learning-pipeline-panel">
-        <div className="panel-heading">
-          <h2>One-click global learning</h2>
-          <p>Local AI crops the source folder and creates the next versioned global training job.</p>
+        <div className="training-step-strip compact">
+          <div className={hasTrainingFolder ? "active" : ""}><strong>1</strong><span>Setup</span></div>
+          <div className={setupSaved || runIsActive ? "active" : ""}><strong>2</strong><span>Train</span></div>
+          <div className={latestCompletedPack ? "active" : ""}><strong>3</strong><span>Active pack</span></div>
         </div>
-        <div className="training-job-summary">
-          <Metric label="Source" value={props.sourceFolder || "Select a folder"} />
-          <Metric label="Next pack" value={`${packNameFromDataset(props.datasetName, props.datasetType)}_v_next`} />
-          <Metric label="Mode" value="Local AI scan" />
-        </div>
-        <div className="actions compact-actions">
-          <button type="button" className="primary-button" onClick={props.onCreateGlobalLearningJob} disabled={!props.sourceFolder.trim() || props.isLearning}>
-            <Activity aria-hidden="true" />
-            {props.isLearning ? "Building learning job" : "Build global learning job"}
-          </button>
-        </div>
-        {props.learningJob ? (
-          <div className="learning-result">
-            <div className="inline-status ok">
-              <CheckCircle2 aria-hidden="true" />
-              <span>{props.learningJob.training_job.lora_name} is ready for trainer launch.</span>
-            </div>
-            <div className="count-grid">
-              <Metric label="Clean crops" value={props.learningJob.prep.cropped_count} />
-              <Metric label="Skipped" value={props.learningJob.prep.skipped_count} />
-              <Metric label="Version" value={`v${props.learningJob.version}`} />
-              <Metric label="Crop folder" value={props.learningJob.prep.output_folder} />
-              <Metric label="Config" value={props.learningJob.training_job.config_path ?? "Saved"} />
-            </div>
-            {props.learningJob.warnings.length ? <WarningList warnings={props.learningJob.warnings} /> : null}
+
+        <div className="training-simple-grid">
+          <div className="training-field-stack">
+            <label>
+              Pack name
+              <input
+                value={props.datasetName}
+                disabled={runIsActive}
+                onChange={(event) => {
+                  const nextName = event.target.value;
+                  props.onDatasetNameChange(nextName);
+                  props.onLoraNameChange(packNameFromDataset(nextName, props.datasetType));
+                }}
+              />
+            </label>
+            <label>
+              What this teaches
+              <select
+                value={props.datasetType}
+                disabled={runIsActive}
+                onChange={(event) => props.onDatasetTypeChange(event.target.value as DatasetType)}
+              >
+                {datasetTypes.map((item) => <option key={item} value={item}>{datasetTypeLabel(item)}</option>)}
+              </select>
+            </label>
           </div>
-        ) : null}
-      </div>
 
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>Trainer control</h2>
-          <p>Starts the local LoRA trainer, shows live status, and activates completed packs automatically.</p>
-        </div>
-        <div className="count-grid">
-          <Metric label="Ready packs" value={completedGlobalPacks.length} />
-          <Metric label="Pending jobs" value={pendingGlobalJobs.length} />
-          <Metric label="Latest ready" value={latestCompletedPack?.lora_name ?? "None yet"} />
-          <Metric label="Runs this session" value={props.trainingRuns.length} />
-        </div>
-        <div className="trainer-run-card">
-          <div className="trainer-run-main">
-            <div>
-              <span>Selected job</span>
-              <strong>{props.trainingJob?.lora_name ?? "Build a global learning job first"}</strong>
+          <div className="training-folder-card">
+            <span>Prepared crop folder</span>
+            <div className="folder-picker-row">
+              <input
+                id="training-folder"
+                value={trainingFolder}
+                disabled={runIsActive}
+                onChange={(event) => {
+                  props.onSourceFolderChange(event.target.value);
+                  props.onDatasetPathChange(event.target.value);
+                }}
+                placeholder="Select a crop folder created in Dataset prep"
+              />
+              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSourceFolder} disabled={runIsActive}>
+                <FolderOpen aria-hidden="true" />
+                Select folder
+              </button>
             </div>
-            <div>
-              <span>Expected output</span>
-              <strong>{activeRun?.output_lora_path ?? (props.trainingJob ? `${props.trainingJob.output_dir}\\${props.trainingJob.lora_name}.safetensors` : "None yet")}</strong>
-            </div>
+            <small>{props.acceptedImageCount ? `${props.acceptedImageCount} images ready` : "Image count is checked when setup is saved."}</small>
+          </div>
+        </div>
+
+        <div className="preset-grid compact-presets" role="radiogroup" aria-label="Training quality">
+          {trainingPresets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              role="radio"
+              aria-checked={props.trainingPreset === preset.id}
+              className={props.trainingPreset === preset.id ? "preset-card active" : "preset-card"}
+              disabled={runIsActive}
+              onClick={() => props.onTrainingPresetChange(preset.id)}
+            >
+              <strong>{preset.label}</strong>
+              <span>{preset.description}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="training-action-card">
+          <div>
+            <span>Status</span>
+            <strong>{setupStatus}</strong>
+            <small>Output pack: {globalPackName}.safetensors</small>
           </div>
           <div className="actions compact-actions">
-            <button type="button" className="primary-button" onClick={props.onStartTraining} disabled={!props.trainingJob || props.isTrainingRunning || runIsActive}>
-              <Play aria-hidden="true" />
-              {props.isTrainingRunning || runIsActive ? "Training running" : "Start training now"}
+            <button
+              type="button"
+              className="primary-button"
+              onClick={primaryAction}
+              disabled={!hasTrainingFolder || props.isTrainingRunning || runIsActive}
+            >
+              {setupSaved ? <Play aria-hidden="true" /> : <Save aria-hidden="true" />}
+              {primaryActionLabel}
             </button>
             {runIsActive ? (
               <button type="button" className="secondary-button danger-button" onClick={props.onCancelTraining}>
@@ -1406,172 +1456,90 @@ function TrainingPanel(props: {
               </button>
             ) : null}
           </div>
-          {activeRun ? <TrainingRunPanel run={activeRun} /> : null}
         </div>
-        {pendingGlobalJobs.length ? (
-          <div className="job-list">
-            {pendingGlobalJobs.slice(-5).map((job) => (
-              <article key={job.job_id} className="job-row">
-                <strong>{job.lora_name}</strong>
-                <span>{job.accepted_image_count} images · {job.config_path ?? "config saved"}</span>
-              </article>
-            ))}
+
+        {activeRun ? <TrainingRunPanel run={activeRun} /> : null}
+
+        <div className="training-library-strip">
+          <span>{completedGlobalPacks.length} active pack{completedGlobalPacks.length === 1 ? "" : "s"}</span>
+          <span>{pendingGlobalJobs.length} saved setup{pendingGlobalJobs.length === 1 ? "" : "s"}</span>
+          <span>{latestCompletedPack ? `Latest: ${latestCompletedPack.lora_name}` : "No finished pack yet"}</span>
+        </div>
+
+        <details className="training-diagnostics">
+          <summary>Queue tools and technical details</summary>
+          <div className="count-grid">
+            <Metric label="Ready packs" value={completedGlobalPacks.length} />
+            <Metric label="Pending jobs" value={pendingGlobalJobs.length} />
+            <Metric label="Latest ready" value={latestCompletedPack?.lora_name ?? "None yet"} />
+            <Metric label="Runs this session" value={props.trainingRuns.length} />
           </div>
-        ) : null}
-      </div>
-
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>1. Data pack</h2>
-          <p>Pick the folder and the kind of global knowledge this pack should add.</p>
-        </div>
-        <div className="form-grid two-column">
-          <label>
-            Pack name
-            <input value={props.datasetName} onChange={(event) => props.onDatasetNameChange(event.target.value)} />
-          </label>
-          <div className="field-block">
-            <label htmlFor="training-folder">Training folder</label>
-            <div className="folder-picker-row">
-              <input
-                id="training-folder"
-                value={props.sourceFolder}
-                onChange={(event) => props.onSourceFolderChange(event.target.value)}
-                placeholder="Select a local folder"
-              />
-              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSourceFolder}>
-                <FolderOpen aria-hidden="true" />
-                Select folder
-              </button>
-            </div>
-          </div>
-          <label>
-            Improvement type
-            <select value={props.datasetType} onChange={(event) => props.onDatasetTypeChange(event.target.value as DatasetType)}>
-              {datasetTypes.map((item) => <option key={item} value={item}>{datasetTypeLabel(item)}</option>)}
-            </select>
-          </label>
-        </div>
-        <button type="button" className="primary-button" onClick={props.onScan}>
-          <Search aria-hidden="true" />
-          Scan data pack
-        </button>
-      </div>
-
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>2. Scan review</h2>
-          <p>Only accepted images are used for the global pack.</p>
-        </div>
-        <div className="count-grid">
-          <Metric label="Accepted" value={props.scanReport?.accepted_count ?? 0} />
-          <Metric label="Rejected" value={props.scanReport?.rejected_count ?? 0} />
-          <Metric label="Duplicate" value={props.scanReport?.duplicate_count ?? 0} />
-          <Metric label="Ignored" value={props.scanReport?.ignored_count ?? 0} />
-        </div>
-        {props.scanReport?.warnings.length ? <WarningList warnings={props.scanReport.warnings} /> : null}
-      </div>
-
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>3. Global training job</h2>
-          <p>Creates a reusable adapter pack for current and future generations.</p>
-        </div>
-        <div className="preset-grid" role="radiogroup" aria-label="Training preset">
-          {trainingPresets.map((preset) => (
+          <div className="actions compact-actions">
             <button
-              key={preset.id}
               type="button"
-              role="radio"
-              aria-checked={props.trainingPreset === preset.id}
-              className={props.trainingPreset === preset.id ? "preset-card active" : "preset-card"}
-              onClick={() => props.onTrainingPresetChange(preset.id)}
+              className="secondary-button"
+              onClick={props.onClearPendingJobs}
+              disabled={!pendingGlobalJobs.length || runIsActive}
             >
-              <strong>{preset.label}</strong>
-              <span>{preset.description}</span>
+              <X aria-hidden="true" />
+              Clear pending jobs
             </button>
-          ))}
-        </div>
-        <div className="training-job-summary">
-          <Metric label="Pack" value={globalPackName} />
-          <Metric label="Images ready" value={props.scanReport?.accepted_count ?? 0} />
-          <Metric label="Preset" value={trainingPresets.find((preset) => preset.id === props.trainingPreset)?.label ?? "Balanced"} />
-        </div>
-        <button type="button" className="primary-button" onClick={props.onCreateConfig} disabled={!hasAcceptedImages}>
-          <Save aria-hidden="true" />
-          Create global training job
-        </button>
-        {props.trainingJob ? <div className="inline-status"><CheckCircle2 aria-hidden="true" /><span>Global pack job {props.trainingJob.job_id}</span></div> : null}
+          </div>
+          {pendingGlobalJobs.length ? (
+            <div className="job-list">
+              {pendingGlobalJobs.slice(-5).map((job) => (
+                <article key={job.job_id} className="job-row">
+                  <strong>{job.lora_name}</strong>
+                  <span>{job.accepted_image_count} images · {job.config_path ?? "config saved"}</span>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </details>
       </div>
 
-      <details className="panel advanced-training">
-        <summary>Advanced trainer details</summary>
-        <div className="panel-heading advanced-panel-heading">
-          <h2>Trainer configuration</h2>
-          <p>Technical paths and safety policy. Defaults are used unless changed here.</p>
-        </div>
-        <div className="form-grid two-column">
-          <label>
-            Dataset path
-            <input value={props.datasetPath} onChange={(event) => props.onDatasetPathChange(event.target.value)} />
-          </label>
-          <label>
-            Base model path
-            <input value={props.baseModelPath} onChange={(event) => props.onBaseModelPathChange(event.target.value)} />
-          </label>
-          <label>
-            LoRA name
-            <input value={props.loraName} onChange={(event) => props.onLoraNameChange(event.target.value)} />
-          </label>
-          <label>
-            Output dir
-            <input value={props.outputDir} onChange={(event) => props.onOutputDirChange(event.target.value)} />
-          </label>
-          <label>
-            Accepted image count
-            <input
-              type="number"
-              min="1"
-              value={props.acceptedImageCount}
-              onChange={(event) => props.onAcceptedImageCountChange(Number(event.target.value))}
-            />
-          </label>
-          <label>
-            Face policy
-            <select value={props.facePolicy} onChange={(event) => props.onFacePolicyChange(event.target.value as FacePolicy)}>
-              {facePolicies.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-            </select>
-          </label>
-          <label>
-            Trainer entrypoint
-            <input value={props.trainerEntrypoint} onChange={(event) => props.onTrainerEntrypointChange(event.target.value)} />
-          </label>
-          <label>
-            Config path
-            <input value={props.trainerConfigPath} onChange={(event) => props.onTrainerConfigPathChange(event.target.value)} />
-          </label>
-        </div>
-        <button type="button" className="secondary-button" onClick={props.onCheckStatus}>
-          <Activity aria-hidden="true" />
-          Check status
-        </button>
-        {props.trainerStatus ? (
-          <>
-            <div className="status-grid compact">
-              <Metric label="Entrypoint" value={props.trainerStatus.trainer_entrypoint_exists ? "Found" : "Missing"} />
-              <Metric label="Config" value={props.trainerStatus.config_path_exists ? "Found" : "Missing"} />
-            </div>
-            {props.trainerStatus.warnings.length ? <WarningList warnings={props.trainerStatus.warnings} /> : null}
-          </>
-        ) : null}
-      </details>
     </section>
   );
+}
+
+function trainingOverallProgress(run: TrainingRunStatus) {
+  if (run.status === "completed") {
+    return { percent: 100, label: "Complete", detail: "Pack is ready" };
+  }
+  if (run.status === "failed") {
+    return { percent: run.progress_percent ?? 0, label: "Failed", detail: "Training stopped before completion" };
+  }
+  if (run.status === "cancelled") {
+    return { percent: run.progress_percent ?? 0, label: "Cancelled", detail: "Training was stopped" };
+  }
+
+  const current = run.progress_current;
+  const total = run.progress_total;
+  const phasePercent = run.progress_percent ?? 0;
+  if (current === null || total === null) {
+    return { percent: 0, label: "Starting", detail: "Waiting for trainer progress" };
+  }
+
+  const isTrainingPhase = total >= 1000;
+  if (isTrainingPhase) {
+    return {
+      percent: Math.min(99, 25 + phasePercent * 0.75),
+      label: "Training model",
+      detail: `${current} / ${total} steps`
+    };
+  }
+
+  return {
+    percent: Math.min(25, phasePercent * 0.25),
+    label: "Preparing images",
+    detail: `${current} / ${total} images`
+  };
 }
 
 function TrainingRunPanel({ run }: { run: TrainingRunStatus }) {
   const isActive = ["queued", "running"].includes(run.status);
   const statusLabel = labelize(run.status);
+  const overallProgress = trainingOverallProgress(run);
 
   return (
     <section className={`training-run-panel ${run.status}`} aria-live="polite">
@@ -1583,23 +1551,39 @@ function TrainingRunPanel({ run }: { run: TrainingRunStatus }) {
         <span>{run.process_id ? `PID ${run.process_id}` : "No process id yet"}</span>
       </div>
       {isActive ? (
-        <div className="progress-track" role="progressbar" aria-label="Training progress">
-          <span />
+        <div className="training-progress-block">
+          <div
+            className="progress-track determinate"
+            role="progressbar"
+            aria-label="Training progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(overallProgress.percent)}
+          >
+            <span className="progress-fill" style={{ width: `${overallProgress.percent}%` }} />
+          </div>
+          <div className="training-progress-meta">
+            <strong>{`${overallProgress.percent.toFixed(1)}% · ${overallProgress.label}`}</strong>
+            <span>{overallProgress.detail}</span>
+          </div>
         </div>
       ) : null}
-      <div className="training-run-grid">
-        <Metric label="Config" value={run.config_path || "Missing"} />
-        <Metric label="Output" value={run.output_lora_path ?? "Pending"} />
-        <Metric label="Log" value={run.log_path ?? "Pending"} />
-        <Metric label="Exit code" value={run.exit_code ?? "Running"} />
-      </div>
       {run.error ? <div className="inline-error">{run.error}</div> : null}
-      {run.tail.length ? (
-        <details className="log-tail" open={run.status === "failed"}>
-          <summary>Training log tail</summary>
-          <pre>{run.tail.join("\n")}</pre>
-        </details>
-      ) : null}
+      <details className="run-path-details">
+        <summary>Technical run details</summary>
+        <div className="training-run-grid">
+          <Metric label="Exit code" value={run.exit_code ?? "Running"} />
+          <Metric label="Config" value={run.config_path || "Missing"} />
+          <Metric label="Output" value={run.output_lora_path ?? "Pending"} />
+          <Metric label="Log" value={run.log_path ?? "Pending"} />
+        </div>
+        {run.tail.length ? (
+          <div className="log-tail nested-log-tail">
+            <strong>Training log tail</strong>
+            <pre>{run.tail.join("\n")}</pre>
+          </div>
+        ) : null}
+      </details>
     </section>
   );
 }
