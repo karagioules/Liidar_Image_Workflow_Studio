@@ -29,6 +29,7 @@ import type {
 
 type TabId = "runtime" | "characters" | "generate" | "training" | "prep";
 type TrainingPreset = "fast" | "balanced" | "high_quality";
+type PackInfluence = "natural" | "balanced" | "strong";
 type TrackedGenerationJob = GenerationJobStatus & { recipe: PromptRecipe };
 
 const blankCharacter: CharacterProfile = {
@@ -75,6 +76,11 @@ const trainingPresets: Array<{ id: TrainingPreset; label: string; description: s
   { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
   { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
   { id: "high_quality", label: "High quality", description: "Slower, stronger adapter training." }
+];
+const packInfluenceOptions: Array<{ id: PackInfluence; label: string; strength: number; description: string }> = [
+  { id: "natural", label: "Natural", strength: 0.55, description: "Light influence, keeps the prompt in charge." },
+  { id: "balanced", label: "Balanced", strength: 0.75, description: "Default blend between prompt and trained pack." },
+  { id: "strong", label: "Strong", strength: 0.95, description: "Pushes the trained pack harder." }
 ];
 
 function LiidarLogo() {
@@ -133,9 +139,9 @@ function trainingPresetSettings(preset: TrainingPreset) {
     return { resolution: 640, max_train_steps: 450, learning_rate: 0.0001, network_dim: 16, network_alpha: 8, repeats: 4 };
   }
   if (preset === "high_quality") {
-    return { resolution: 896, max_train_steps: 1200, learning_rate: 0.00008, network_dim: 32, network_alpha: 16, repeats: 8 };
+    return { resolution: 896, max_train_steps: 1200, learning_rate: 0.00002, network_dim: 32, network_alpha: 16, repeats: 8 };
   }
-  return { resolution: 768, max_train_steps: 900, learning_rate: 0.0001, network_dim: 32, network_alpha: 16, repeats: 6 };
+  return { resolution: 768, max_train_steps: 900, learning_rate: 0.00003, network_dim: 32, network_alpha: 16, repeats: 6 };
 }
 
 function packNameFromDataset(name: string, type: DatasetType) {
@@ -182,6 +188,9 @@ function App() {
   const [mode, setMode] = useState<GenerationMode>("portrait");
   const [quality, setQuality] = useState<QualityPreset>("balanced");
   const [scenePrompt, setScenePrompt] = useState("soft natural light, believable still photo");
+  const [bodyDetailPrompt, setBodyDetailPrompt] = useState("");
+  const [selectedGlobalLora, setSelectedGlobalLora] = useState("all");
+  const [packInfluence, setPackInfluence] = useState<PackInfluence>("balanced");
   const [extraNegative, setExtraNegative] = useState("");
   const [generationJobs, setGenerationJobs] = useState<TrackedGenerationJob[]>([]);
 
@@ -431,13 +440,22 @@ function App() {
   }
 
   function generationPayload() {
+    const requestedGlobalLoras =
+      selectedGlobalLora === "all"
+        ? null
+        : selectedGlobalLora === "none"
+          ? []
+          : [selectedGlobalLora];
+    const selectedInfluence = packInfluenceOptions.find((item) => item.id === packInfluence) ?? packInfluenceOptions[1];
     return {
       character_id: selectedCharacter?.id ?? "",
       mode,
       quality,
-      scene_prompt: scenePrompt,
+      scene_prompt: [scenePrompt, bodyDetailPrompt].map((part) => part.trim()).filter(Boolean).join(", "),
       extra_negative: extraNegative,
-      seed: null
+      seed: null,
+      global_lora_files: requestedGlobalLoras,
+      lora_strength: selectedInfluence.strength
     };
   }
 
@@ -770,13 +788,20 @@ function App() {
             mode={mode}
             quality={quality}
             scenePrompt={scenePrompt}
+            bodyDetailPrompt={bodyDetailPrompt}
+            selectedGlobalLora={selectedGlobalLora}
+            packInfluence={packInfluence}
             extraNegative={extraNegative}
             recipe={recipe}
             generationJobs={generationJobs}
+            trainingJobs={trainingJobs}
             onCharacterChange={setSelectedCharacterId}
             onModeChange={setMode}
             onQualityChange={setQuality}
             onScenePromptChange={setScenePrompt}
+            onBodyDetailPromptChange={setBodyDetailPrompt}
+            onSelectedGlobalLoraChange={setSelectedGlobalLora}
+            onPackInfluenceChange={setPackInfluence}
             onExtraNegativeChange={setExtraNegative}
             onPreview={previewRecipe}
             onQueue={queueGeneration}
@@ -1028,45 +1053,113 @@ function GeneratePanel(props: {
   mode: GenerationMode;
   quality: QualityPreset;
   scenePrompt: string;
+  bodyDetailPrompt: string;
+  selectedGlobalLora: string;
+  packInfluence: PackInfluence;
   extraNegative: string;
   recipe: PromptRecipe | null;
   generationJobs: TrackedGenerationJob[];
+  trainingJobs: TrainingJobConfig[];
   onCharacterChange: (id: string) => void;
   onModeChange: (mode: GenerationMode) => void;
   onQualityChange: (quality: QualityPreset) => void;
   onScenePromptChange: (value: string) => void;
+  onBodyDetailPromptChange: (value: string) => void;
+  onSelectedGlobalLoraChange: (value: string) => void;
+  onPackInfluenceChange: (value: PackInfluence) => void;
   onExtraNegativeChange: (value: string) => void;
   onPreview: () => void;
   onQueue: () => void;
 }) {
+  const activePacks = props.trainingJobs.filter((job) => job.global_pack && job.completed_lora_path);
+  const selectedInfluence = packInfluenceOptions.find((option) => option.id === props.packInfluence) ?? packInfluenceOptions[1];
+
   return (
-    <section className="panel">
+    <section className="panel generate-workflow-panel">
       <div className="panel-heading">
         <h2>Generate believable still photos</h2>
-        <p>Build an SDXL prompt recipe and queue a local image job.</p>
+        <p>Pick the character, choose the trained pack influence, describe the photo, then queue it locally.</p>
       </div>
-      <div className="form-grid two-column">
-        <label>
-          Character
-          <select value={props.selectedCharacterId} onChange={(event) => props.onCharacterChange(event.target.value)}>
-            {props.characters.map((character) => <option key={character.id} value={character.id}>{character.display_name}</option>)}
-          </select>
-        </label>
-        <label>
-          Mode
-          <select value={props.mode} onChange={(event) => props.onModeChange(event.target.value as GenerationMode)}>
-            {generationModes.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-          </select>
-        </label>
-        <label>
-          Quality
-          <select value={props.quality} onChange={(event) => props.onQualityChange(event.target.value as QualityPreset)}>
-            {qualityPresets.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-          </select>
-        </label>
-        <Textarea label="Scene prompt" value={props.scenePrompt} onChange={props.onScenePromptChange} />
-        <Textarea label="Extra negative" value={props.extraNegative} onChange={props.onExtraNegativeChange} />
+
+      <div className="generate-control-grid">
+        <section className="generate-card">
+          <div className="generate-card-heading">
+            <strong>Character</strong>
+            <span>Face and identity base</span>
+          </div>
+          <label>
+            Character
+            <select value={props.selectedCharacterId} onChange={(event) => props.onCharacterChange(event.target.value)}>
+              {props.characters.map((character) => <option key={character.id} value={character.id}>{character.display_name}</option>)}
+            </select>
+          </label>
+          <div className="generate-mini-grid">
+            <label>
+              Framing
+              <select value={props.mode} onChange={(event) => props.onModeChange(event.target.value as GenerationMode)}>
+                {generationModes.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
+              </select>
+            </label>
+            <label>
+              Quality
+              <select value={props.quality} onChange={(event) => props.onQualityChange(event.target.value as QualityPreset)}>
+                {qualityPresets.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section className="generate-card">
+          <div className="generate-card-heading">
+            <strong>Trained pack</strong>
+            <span>{activePacks.length ? `${activePacks.length} active pack${activePacks.length === 1 ? "" : "s"} available` : "No active trained pack yet"}</span>
+          </div>
+          <label>
+            Body detail pack
+            <select value={props.selectedGlobalLora} onChange={(event) => props.onSelectedGlobalLoraChange(event.target.value)}>
+              <option value="all">Use all active packs automatically</option>
+              <option value="none">No trained body pack</option>
+              {activePacks.map((job) => (
+                <option key={job.job_id} value={job.completed_lora_path ?? ""}>
+                  {job.lora_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="pack-strength-row" role="radiogroup" aria-label="Pack influence">
+            {packInfluenceOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={props.packInfluence === option.id}
+                className={props.packInfluence === option.id ? "strength-button active" : "strength-button"}
+                onClick={() => props.onPackInfluenceChange(option.id)}
+                title={option.description}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <small>Strength {selectedInfluence.strength.toFixed(2)}. Use Strong only when the pack should dominate the body detail.</small>
+        </section>
       </div>
+
+      <section className="generate-scene-card">
+        <div className="generate-card-heading">
+          <strong>Photo request</strong>
+          <span>Write the scene separately from the trained body-detail request.</span>
+        </div>
+        <div className="form-grid two-column">
+          <Textarea label="Scene prompt" value={props.scenePrompt} onChange={props.onScenePromptChange} />
+          <Textarea label="Body detail request" value={props.bodyDetailPrompt} onChange={props.onBodyDetailPromptChange} />
+        </div>
+        <details className="generate-advanced">
+          <summary>Extra negative prompt</summary>
+          <Textarea label="Extra negative" value={props.extraNegative} onChange={props.onExtraNegativeChange} />
+        </details>
+      </section>
+
       <div className="actions">
         <button type="button" className="secondary-button" onClick={props.onPreview}>
           <Search aria-hidden="true" />
@@ -1079,15 +1172,27 @@ function GeneratePanel(props: {
       </div>
       {props.recipe ? (
         <div className="recipe-box">
-          <h3>Preview recipe</h3>
-          <p>{props.recipe.positive}</p>
-          <dl>
-            <div><dt>Negative</dt><dd>{props.recipe.negative}</dd></div>
+          <div className="recipe-summary-header">
+            <h3>Recipe preview</h3>
+            <span>{props.recipe.width} x {props.recipe.height} · {props.recipe.steps} steps · CFG {props.recipe.cfg}</span>
+          </div>
+          <dl className="recipe-summary-grid">
+            <div><dt>Character</dt><dd>{props.characters.find((character) => character.id === props.selectedCharacterId)?.display_name ?? "Selected character"}</dd></div>
+            <div><dt>Pack influence</dt><dd>{props.recipe.lora_files.length ? `${props.recipe.lora_files.length} pack${props.recipe.lora_files.length === 1 ? "" : "s"} · ${props.recipe.lora_strength ?? selectedInfluence.strength}` : "No trained pack"}</dd></div>
             <div><dt>Seed</dt><dd>{props.recipe.seed}</dd></div>
-            <div><dt>Size</dt><dd>{props.recipe.width} x {props.recipe.height}</dd></div>
-            <div><dt>Steps</dt><dd>{props.recipe.steps}</dd></div>
-            <div><dt>CFG</dt><dd>{props.recipe.cfg}</dd></div>
           </dl>
+          {props.recipe.lora_files.length ? (
+            <div className="active-pack-list">
+              {props.recipe.lora_files.map((file) => <span key={file}>{file.split(/[\\/]/).pop() ?? file}</span>)}
+            </div>
+          ) : null}
+          <details className="recipe-technical">
+            <summary>Full prompt recipe</summary>
+            <p>{props.recipe.positive}</p>
+            <dl>
+              <div><dt>Negative</dt><dd>{props.recipe.negative}</dd></div>
+            </dl>
+          </details>
         </div>
       ) : null}
       <GenerationJobsPanel jobs={props.generationJobs} />
@@ -1198,7 +1303,7 @@ function DatasetPrepPanel(props: {
       <div className="panel">
         <div className="panel-heading">
           <h2>Crop setup</h2>
-          <p>Output folder is optional. If blank, crops are written to Desktop/Liidar_Dataset_Crops.</p>
+          <p>Output folder is optional. If blank, crops stay inside this Liidar workspace.</p>
         </div>
         <div className="form-grid two-column">
           <div className="field-block">
@@ -1214,7 +1319,7 @@ function DatasetPrepPanel(props: {
           <div className="field-block">
             <label htmlFor="prep-output-folder">Output folder</label>
             <div className="folder-picker-row">
-              <input id="prep-output-folder" value={props.outputFolder} onChange={(event) => props.onOutputFolderChange(event.target.value)} placeholder="Desktop default" />
+              <input id="prep-output-folder" value={props.outputFolder} onChange={(event) => props.onOutputFolderChange(event.target.value)} placeholder="Workspace default" />
               <button type="button" className="secondary-button inline-button" onClick={props.onSelectOutput}>
                 <FolderOpen aria-hidden="true" />
                 Select folder

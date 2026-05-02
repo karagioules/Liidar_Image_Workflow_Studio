@@ -163,6 +163,8 @@ export interface GenerationRequest {
   scene_prompt: string;
   extra_negative: string;
   seed: number | null;
+  global_lora_files?: string[] | null;
+  lora_strength?: number;
 }
 
 export interface PromptRecipe {
@@ -174,6 +176,7 @@ export interface PromptRecipe {
   steps: number;
   cfg: number;
   lora_files: string[];
+  lora_strength?: number;
 }
 
 export interface GenerationJobResponse {

@@ -462,6 +462,26 @@ def test_dataset_prep_local_ai_failure_skips_instead_of_center_crop(tmp_path: Pa
     assert report.images[0].method == "local_ai_failed"
 
 
+def test_dataset_prep_default_output_stays_inside_workspace(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "raw"
+    source.mkdir()
+    Image.new("RGB", (800, 1200), color=(220, 190, 170)).save(source / "body.jpg")
+    monkeypatch.setattr(dataset_prepper, "default_workspace_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        dataset_prepper,
+        "_local_ai_crop_box",
+        lambda image_path, size, target: ((100, 200, 700, 900), None),
+    )
+
+    report = dataset_prepper.prepare_dataset_crops(
+        DatasetPrepRequest(source_folder=source, output_folder=None, target="chest_detail", scan_mode="local"),
+    )
+
+    output_folder = Path(report.output_folder)
+    assert output_folder.is_relative_to(tmp_path / "outputs" / "dataset_crops")
+    assert report.cropped_count == 1
+
+
 def test_dataset_prep_local_detector_chest_crop_uses_breast_boxes() -> None:
     crop, warning = dataset_prepper._crop_box_from_local_detections(
         [

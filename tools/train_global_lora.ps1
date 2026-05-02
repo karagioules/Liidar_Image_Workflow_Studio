@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $WorkspaceRoot = Split-Path -Parent $PSScriptRoot
 $Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 $SdScripts = Join-Path $WorkspaceRoot "tools\sd-scripts"
-$TrainScript = Join-Path $SdScripts "sdxl_train_network.py"
+$TrainScript = Join-Path $WorkspaceRoot "tools\liidar_sdxl_train_network.py"
 
 if (-not (Test-Path -LiteralPath $TrainScript)) {
   throw "sd-scripts trainer is missing. Install kohya sd-scripts into $SdScripts, or run tools\setup\install-sd-scripts.ps1 after reviewing it."
@@ -52,9 +52,11 @@ if ($LASTEXITCODE -ne 0) {
   --learning_rate="$($Config.learning_rate)" `
   --network_dim="$($Config.network_dim)" `
   --network_alpha="$($Config.network_alpha)" `
-  --mixed_precision="fp16" `
-  --save_precision="fp16" `
+  --mixed_precision="bf16" `
+  --save_precision="bf16" `
+  --full_bf16 `
   --optimizer_type="AdamW" `
+  --max_grad_norm=1.0 `
   --cache_latents `
   --cache_latents_to_disk `
   --cache_text_encoder_outputs_to_disk `

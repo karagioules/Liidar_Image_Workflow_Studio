@@ -79,8 +79,8 @@ def render_sdxl_workflow(recipe: PromptRecipe, checkpoint_name: str) -> Workflow
                 "model": model_source,
                 "clip": clip_source,
                 "lora_name": lora_file,
-                "strength_model": 0.75,
-                "strength_clip": 0.75,
+                "strength_model": recipe.lora_strength,
+                "strength_clip": recipe.lora_strength,
             },
         }
         model_source = [node_id, 0]

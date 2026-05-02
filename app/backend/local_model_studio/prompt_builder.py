@@ -33,6 +33,9 @@ def build_prompt_recipe(
 ) -> PromptRecipe:
     settings = QUALITY_SETTINGS[request.quality]
     seed = _resolve_seed(profile, request)
+    selected_global_loras = global_lora_files or []
+    if request.global_lora_files is not None:
+        selected_global_loras = request.global_lora_files
     positive_parts = [
         "fictional adult woman, age 25 or older",
         MODE_PROMPTS[request.mode],
@@ -56,7 +59,8 @@ def build_prompt_recipe(
         height=settings["height"],
         steps=settings["steps"],
         cfg=settings["cfg"],
-        lora_files=_unique_loras([*(global_lora_files or []), *profile.lora_files]),
+        lora_files=_unique_loras([*selected_global_loras, *profile.lora_files]),
+        lora_strength=request.lora_strength,
     )
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock, Thread
@@ -131,7 +132,7 @@ class _TrainingRun:
                 with self._lock:
                     self.process = process
                     self.updated_at = datetime.now(UTC)
-                exit_code = process.wait()
+                exit_code = self._wait_for_process(process)
                 if stopped_comfy_processes:
                     _start_workspace_comfyui(self.paths.root, self.paths.logs_dir)
             with self._lock:
@@ -139,12 +140,21 @@ class _TrainingRun:
                 if self.status == "cancelled":
                     self.updated_at = datetime.now(UTC)
                     return
-                if exit_code != 0:
+                completed_lora = _find_completed_lora_artifact(self.paths.root, self.job, self.output_lora_path)
+                if completed_lora:
+                    self.training.register_completed_lora(self.job.job_id, completed_lora)
+                    self.output_lora_path = completed_lora
+                    self.status = "completed"
+                elif exit_code == _NAN_LOSS_EXIT_CODE:
+                    self.status = "failed"
+                    self.error = (
+                        "Training stopped because the loss became NaN. "
+                        "The run was unstable, so no pack was saved. "
+                        "Use the updated safer BF16 trainer settings and start again."
+                    )
+                elif exit_code != 0:
                     self.status = "failed"
                     self.error = f"Trainer exited with code {exit_code}. See log: {self.log_path}"
-                elif self.output_lora_path and self.output_lora_path.is_file():
-                    self.training.register_completed_lora(self.job.job_id, self.output_lora_path)
-                    self.status = "completed"
                 else:
                     self.status = "failed"
                     self.error = f"Trainer finished but expected LoRA was not found: {self.output_lora_path}"
@@ -154,6 +164,16 @@ class _TrainingRun:
                 self.status = "failed"
                 self.error = str(exc)
                 self.updated_at = datetime.now(UTC)
+
+    def _wait_for_process(self, process: subprocess.Popen) -> int:
+        while True:
+            exit_code = process.poll()
+            if exit_code is not None:
+                return int(exit_code)
+            if _tail_has_nan_loss(_read_tail(self.log_path, line_count=80)):
+                _terminate_process_tree(process)
+                return _NAN_LOSS_EXIT_CODE
+            time.sleep(0.5)
 
 
 def _resolve_workspace_path(root: Path, path: str | Path) -> Path:
@@ -166,6 +186,27 @@ def _expected_lora_path(root: Path, job: TrainingJobConfig) -> Path:
     if not output_dir.is_absolute():
         output_dir = root / output_dir
     return output_dir / f"{job.lora_name}.safetensors"
+
+
+_NAN_LOSS_EXIT_CODE = -9501
+
+
+def _find_completed_lora_artifact(root: Path, job: TrainingJobConfig, expected_path: Path | None) -> Path | None:
+    if expected_path and expected_path.is_file():
+        return expected_path
+
+    output_dir = Path(job.output_dir)
+    if not output_dir.is_absolute():
+        output_dir = root / output_dir
+    if not output_dir.is_dir():
+        return None
+
+    candidates = sorted(
+        output_dir.glob(f"{job.lora_name}*.safetensors"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
 
 
 def _read_tail(path: Path, line_count: int = 2000) -> list[str]:
@@ -189,6 +230,10 @@ def _parse_training_progress(lines: list[str]) -> tuple[int | None, int | None, 
         percent = min(100.0, max(0.0, (current / total) * 100))
         return current, total, round(percent, 1)
     return None, None, None
+
+
+def _tail_has_nan_loss(lines: list[str]) -> bool:
+    return any("avr_loss=nan" in line.lower() or "loss=nan" in line.lower() for line in lines)
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:

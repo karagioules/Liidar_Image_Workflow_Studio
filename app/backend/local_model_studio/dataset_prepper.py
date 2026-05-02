@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 
 from local_model_studio.file_browser import IMAGE_SUFFIXES
 from local_model_studio.local_crop_detector import LocalCropDetection, LocalCropDetectorUnavailable, local_crop_detector
+from local_model_studio.paths import default_workspace_root
 from local_model_studio.schemas import DatasetPrepImage, DatasetPrepRequest, DatasetPrepResponse
 
 
@@ -247,9 +248,7 @@ def _report_progress(callback: ProgressCallback | None, **payload: object) -> No
 
 def _default_output_folder(target: str) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    desktop = Path.home() / "Desktop"
-    root = desktop if desktop.exists() else Path.home()
-    return root / "Liidar_Dataset_Crops" / f"{stamp}-{target}"
+    return default_workspace_root() / "outputs" / "dataset_crops" / f"{stamp}-{target}"
 
 
 def _detect_faces(image_path: Path) -> tuple[list[FaceBox], str | None]:
@@ -738,4 +737,3 @@ def _reason_for(method: str, target: str) -> str:
     if method == "face_guided":
         return f"{label} crop below detected face"
     return f"{label} center fallback crop"
-

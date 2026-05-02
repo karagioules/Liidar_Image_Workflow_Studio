@@ -949,14 +949,88 @@ textarea {
   margin-top: 0;
 }
 
+.generate-workflow-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.generate-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+
+.generate-card,
+.generate-scene-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #0d1520;
+}
+
+.generate-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.generate-card-heading strong {
+  font-size: 1rem;
+}
+
+.generate-card-heading span,
+.generate-card small,
+.generate-advanced summary,
+.recipe-summary-header span {
+  color: #92a4b8;
+}
+
+.generate-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pack-strength-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.strength-button {
+  min-height: 42px;
+  border: 1px solid #304459;
+  border-radius: 8px;
+  background: #121d29;
+  color: #e8eef6;
+  font-weight: 800;
+}
+
+.strength-button:hover,
+.strength-button.active {
+  border-color: #22b8d8;
+  background: #143344;
+  color: #b9efff;
+}
+
+.generate-advanced {
+  border-top: 1px solid #253649;
+  padding-top: 12px;
+}
+
 .recipe-box {
   margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid #dce3ea;
+  padding: 16px;
+  border: 1px solid #253649;
+  border-radius: 8px;
+  background: #0d1520;
 }
 
 .recipe-box h3 {
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .recipe-box p {
@@ -964,9 +1038,18 @@ textarea {
   line-height: 1.5;
 }
 
-.recipe-box dl {
+.recipe-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.recipe-box dl,
+.recipe-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 0;
 }
@@ -979,6 +1062,29 @@ textarea {
 .recipe-box dd {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
+}
+
+.active-pack-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.active-pack-list span {
+  padding: 6px 9px;
+  border: 1px solid #27556c;
+  border-radius: 999px;
+  background: #102a36;
+  color: #b9efff;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.recipe-technical {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #253649;
 }
 
 .generation-jobs-panel {
@@ -1537,6 +1643,10 @@ textarea {
   .training-step-strip,
   .preset-grid,
   .training-job-summary,
+  .generate-control-grid,
+  .generate-mini-grid,
+  .pack-strength-row,
+  .recipe-summary-grid,
   .training-simple-grid,
   .training-action-card,
   .trainer-run-main,

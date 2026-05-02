@@ -140,6 +140,8 @@ class GenerationRequest(BaseModel):
     scene_prompt: str = Field(default="", max_length=1000)
     extra_negative: str = Field(default="", max_length=1000)
     seed: int | None = None
+    global_lora_files: list[str] | None = None
+    lora_strength: float = Field(default=0.75, ge=0.0, le=1.2)
 
 
 class PromptRecipe(BaseModel):
@@ -151,6 +153,7 @@ class PromptRecipe(BaseModel):
     steps: int
     cfg: float
     lora_files: list[str] = Field(default_factory=list)
+    lora_strength: float = 0.75
 
 
 class RuntimeStatus(BaseModel):

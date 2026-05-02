@@ -78,5 +78,5 @@ def _preset_settings(preset: str) -> dict[str, int | float]:
     if preset == "fast":
         return {"resolution": 640, "max_train_steps": 450, "learning_rate": 0.0001, "network_dim": 16, "network_alpha": 8, "repeats": 4}
     if preset == "high_quality":
-        return {"resolution": 896, "max_train_steps": 1200, "learning_rate": 0.00008, "network_dim": 32, "network_alpha": 16, "repeats": 8}
-    return {"resolution": 768, "max_train_steps": 900, "learning_rate": 0.0001, "network_dim": 32, "network_alpha": 16, "repeats": 6}
+        return {"resolution": 896, "max_train_steps": 1200, "learning_rate": 0.00002, "network_dim": 32, "network_alpha": 16, "repeats": 8}
+    return {"resolution": 768, "max_train_steps": 900, "learning_rate": 0.00003, "network_dim": 32, "network_alpha": 16, "repeats": 6}
