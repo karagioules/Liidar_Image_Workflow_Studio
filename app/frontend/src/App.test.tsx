@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,11 +26,46 @@ const character = {
   updated_at: "2026-04-30T00:00:00Z"
 };
 
+const recipe = {
+  positive: "believable still photo, golden hour balcony",
+  negative: "no plastic skin",
+  seed: 42,
+  width: 1024,
+  height: 1024,
+  steps: 30,
+  cfg: 6.5,
+  lora_files: [],
+  lora_strength: 0.75
+};
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+function trainingJob(loraName = "global_body_pack") {
+  return {
+    job_id: "job-1",
+    dataset_id: "global-body-pack",
+    dataset_path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
+    output_dir: "outputs/global_lora",
+    base_model_path: "models/sdxl_base_1.0.safetensors",
+    lora_name: loraName,
+    dataset_type: "body_part",
+    global_pack: true,
+    resolution: 896,
+    repeats: 8,
+    batch_size: 1,
+    max_train_steps: 1200,
+    learning_rate: 0.00002,
+    network_dim: 32,
+    network_alpha: 16,
+    accepted_image_count: 8,
+    completed_lora_path: null,
+    config_path: "H:\\studio\\config\\training\\job-1.json"
+  };
 }
 
 describe("App", () => {
@@ -70,40 +105,6 @@ describe("App", () => {
           });
         }
 
-        if (url.endsWith("/api/settings/anthropic-key") && method === "GET") {
-          return jsonResponse({
-            provider: "anthropic",
-            saved: false,
-            model: "claude-haiku-4-5-20251001"
-          });
-        }
-
-        if (url.endsWith("/api/settings/anthropic-key") && method === "POST") {
-          return jsonResponse({
-            provider: "anthropic",
-            saved: true,
-            model: "claude-haiku-4-5-20251001"
-          });
-        }
-
-        if (url.endsWith("/api/settings/anthropic-key") && method === "DELETE") {
-          return jsonResponse({
-            provider: "anthropic",
-            saved: false,
-            model: "claude-haiku-4-5-20251001"
-          });
-        }
-
-        if (url.endsWith("/api/settings/anthropic-key/test") && method === "POST") {
-          return jsonResponse({
-            provider: "anthropic",
-            ok: false,
-            status_code: 404,
-            model: "claude-haiku-4-5-20251001",
-            message: "404 Not Found - not_found_error: model not found"
-          });
-        }
-
         if (url.endsWith("/api/characters") && method === "GET") {
           return jsonResponse([character]);
         }
@@ -112,168 +113,123 @@ describe("App", () => {
           return jsonResponse(JSON.parse(String(init?.body)));
         }
 
-        if (url.includes("/api/filesystem/browse")) {
-          return jsonResponse({
-            current_path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna",
-            parent_path: "H:\\DevWork\\Win_Apps\\Liidar\\Models",
-            entries: [
-              {
-                name: "sozee_2026-04-30_11-47-30.png",
-                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png",
-                kind: "file"
-              },
-              {
-                name: "Backups",
-                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\Backups",
-                kind: "directory"
-              }
-            ]
-          });
-        }
-
-        if (url.includes("/api/filesystem/select-references")) {
-          return jsonResponse({
-            selected_paths: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\picked.png"]
-          });
-        }
-
-        if (url.endsWith("/api/filesystem/select-folder")) {
-          return jsonResponse({
-            folder_path: "H:\\photos\\training-pack"
-          });
-        }
-
-        if (url.includes("/api/filesystem/image-count")) {
-          return jsonResponse({
-            path: "H:\\photos\\training-pack",
-            image_count: 12
-          });
-        }
-
         if (url.includes("/api/characters/analyze-references")) {
           return jsonResponse({
             ...character,
-            display_name: "Marianna",
-            face_summary: "offline image analysis from 1 reference image; fictional adult face",
-            hair: "reference-inferred dark hair",
-            eyes: "reference-inferred eyes",
-            skin_tone: "warm natural skin tone",
-            body_shape: "reference-inferred adult body proportions",
-            chest: "reference-inferred natural adult body shape",
-            grooming: "reference-inferred grooming",
-            style_notes: "portrait-oriented local reference style",
-            reference_images: ["H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"],
+            display_name: "Ari",
+            reference_images: ["H:\\refs\\ari.png"],
             consistency_score: 76,
             analysis_warnings: ["Add 2-4 more references for stronger identity consistency."],
             analysis_images: [
               {
-                path: "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png",
-                file_name: "sozee_2026-04-30_11-47-30.png",
+                path: "H:\\refs\\ari.png",
+                file_name: "ari.png",
                 width: 800,
                 height: 1200,
                 orientation: "portrait",
                 brightness: "natural mid-key lighting",
                 tone: "warm",
                 texture: "moderate natural texture",
-                caption: "a woman in a white shirt and red bikini on the beach",
+                caption: "studio reference",
                 body_attributes: {
-                  coverage: "swimwear",
-                  chest_visibility: "covered by swimwear or clothing",
-                  pose_framing: "full or upper body visible",
+                  coverage: "reference",
+                  chest_visibility: "visible",
+                  pose_framing: "upper body",
                   confidence: 72,
-                  evidence: "caption mentions bikini"
+                  evidence: "local analysis"
                 },
-                image_details: {
-                  face: { visibility: "partial", confidence: 55, summary: "face present but not identity-locked", evidence: "caption mentions woman" },
-                  hair: { visibility: "clear", confidence: 82, summary: "long dark wavy hair", evidence: "caption mentions dark wavy hair" },
-                  skin: { visibility: "partial", confidence: 66, summary: "warm natural skin tone", evidence: "warm image tone" },
-                  body_shape: { visibility: "partial", confidence: 70, summary: "adult full-body proportions visible", evidence: "caption mentions full body" },
-                  chest: { visibility: "partial", confidence: 72, summary: "swimwear-covered chest/body shape; exact attributes require clearer references", evidence: "caption mentions bikini" },
-                  waist_hips: { visibility: "partial", confidence: 64, summary: "partial waist and hip cues from body framing", evidence: "full body framing" },
-                  pose: { visibility: "clear", confidence: 80, summary: "standing beach pose", evidence: "caption mentions beach" },
-                  clothing: { visibility: "clear", confidence: 84, summary: "red bikini", evidence: "caption mentions red bikini" },
-                  lighting: { visibility: "clear", confidence: 75, summary: "natural mid-key lighting", evidence: "image brightness" },
-                  camera: { visibility: "partial", confidence: 60, summary: "portrait frame", evidence: "image orientation" },
-                  background: { visibility: "clear", confidence: 82, summary: "beach setting", evidence: "caption mentions beach" },
-                  quality: { visibility: "clear", confidence: 78, summary: "moderate natural texture", evidence: "image texture" }
-                },
+                image_details: {},
                 adult_content: {
-                  nudity_level: "non-explicit revealing clothing",
-                  breast_visibility: "covered or partially visible",
+                  nudity_level: "adult reference",
+                  breast_visibility: "visible",
                   nipple_areola_visibility: "not clearly described",
                   genital_visibility: "not clearly described",
                   buttocks_visibility: "not clearly described",
                   sexual_activity: "none described",
                   confidence: 72,
-                  evidence: "caption mentions bikini"
+                  evidence: "local analysis"
                 },
-                vision_tags: [
-                  { name: "rating: questionable", confidence: 61, source: "wd tagger test" },
-                  { name: "bikini", confidence: 88, source: "wd tagger test" },
-                  { name: "long hair", confidence: 82, source: "wd tagger test" }
-                ]
+                vision_tags: [{ name: "studio", confidence: 88, source: "local" }]
               }
             ],
             aggregate_intelligence: {
-              face: { visibility: "partial", confidence: 55, summary: "face present but not identity-locked", evidence: "1 image" },
-              hair: { visibility: "clear", confidence: 82, summary: "long dark wavy hair", evidence: "consistent caption cue" },
-              skin: { visibility: "partial", confidence: 66, summary: "warm natural skin tone", evidence: "image tone" },
-              body_shape: { visibility: "partial", confidence: 70, summary: "adult full-body proportions visible", evidence: "full body framing" },
-              chest: { visibility: "partial", confidence: 72, summary: "swimwear-covered chest/body shape; exact attributes require clearer references", evidence: "caption mentions bikini" },
-              waist_hips: { visibility: "partial", confidence: 64, summary: "partial waist and hip cues from body framing", evidence: "full body framing" },
-              pose: { visibility: "clear", confidence: 80, summary: "standing beach pose", evidence: "caption mentions beach" },
-              clothing: { visibility: "clear", confidence: 84, summary: "red bikini", evidence: "caption mentions red bikini" },
-              lighting: { visibility: "clear", confidence: 75, summary: "natural mid-key lighting", evidence: "image brightness" },
-              camera: { visibility: "partial", confidence: 60, summary: "portrait frame", evidence: "image orientation" },
-              background: { visibility: "clear", confidence: 82, summary: "beach setting", evidence: "caption mentions beach" },
-              quality: { visibility: "clear", confidence: 78, summary: "moderate natural texture", evidence: "image texture" },
+              face: { visibility: "clear", confidence: 82, summary: "soft oval face", evidence: "local analysis" },
+              hair: { visibility: "clear", confidence: 82, summary: "dark shoulder-length hair", evidence: "local analysis" },
+              skin: { visibility: "partial", confidence: 66, summary: "warm medium skin", evidence: "local analysis" },
+              body_shape: { visibility: "partial", confidence: 70, summary: "athletic adult proportions", evidence: "local analysis" },
+              chest: { visibility: "partial", confidence: 72, summary: "natural chest", evidence: "local analysis" },
+              waist_hips: { visibility: "partial", confidence: 64, summary: "balanced waist and hips", evidence: "local analysis" },
+              pose: { visibility: "clear", confidence: 80, summary: "studio pose", evidence: "local analysis" },
+              clothing: { visibility: "clear", confidence: 84, summary: "minimal styling", evidence: "local analysis" },
+              lighting: { visibility: "clear", confidence: 75, summary: "natural light", evidence: "local analysis" },
+              camera: { visibility: "partial", confidence: 60, summary: "portrait frame", evidence: "local analysis" },
+              background: { visibility: "clear", confidence: 82, summary: "studio setting", evidence: "local analysis" },
+              quality: { visibility: "clear", confidence: 78, summary: "usable reference", evidence: "local analysis" },
               adult_content: {
-                nudity_level: "non-explicit revealing clothing",
-                breast_visibility: "covered or partially visible",
+                nudity_level: "adult reference",
+                breast_visibility: "visible",
                 nipple_areola_visibility: "not clearly described",
                 genital_visibility: "not clearly described",
                 buttocks_visibility: "not clearly described",
                 sexual_activity: "none described",
                 confidence: 72,
-                evidence: "caption mentions bikini"
+                evidence: "local analysis"
               },
-              strong_tags: [
-                { name: "bikini", confidence: 88, source: "wd tagger test" },
-                { name: "long hair", confidence: 82, source: "wd tagger test" }
-              ],
-              prompt_summary: "Prompt-ready reference intelligence: long dark wavy hair, warm natural skin tone, swimwear-covered body cues, standing beach pose.",
-              uncertainty_notes: ["Exact anatomy requires clearer uncovered or targeted references."]
+              strong_tags: [{ name: "studio", confidence: 88, source: "local" }],
+              prompt_summary: "Prompt-ready reference intelligence.",
+              uncertainty_notes: ["Add 2-4 more references for stronger identity consistency."]
             }
+          });
+        }
+
+        if (url.includes("/api/filesystem/select-references")) {
+          return jsonResponse({ selected_paths: ["H:\\refs\\ari.png"] });
+        }
+
+        if (url.endsWith("/api/filesystem/select-folder")) {
+          return jsonResponse({ folder_path: "H:\\raw" });
+        }
+
+        if (url.includes("/api/filesystem/image-count")) {
+          return jsonResponse({ path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1", image_count: 8 });
+        }
+
+        if (url.endsWith("/api/generate/settings") && method === "GET") {
+          return jsonResponse({ checkpoint_name: "sdxl_base_1.0.safetensors" });
+        }
+
+        if (url.endsWith("/api/generate/settings") && method === "POST") {
+          return jsonResponse(JSON.parse(String(init?.body)));
+        }
+
+        if (url.endsWith("/api/generate/enhance-prompt")) {
+          return jsonResponse({
+            scene_prompt: "golden hour balcony, realistic adult studio photo",
+            body_detail_prompt: "natural adult proportions",
+            extra_negative: "low quality, plastic skin, watermark",
+            summary: "Local prompt recipe ready"
           });
         }
 
         if (url.endsWith("/api/generate/preview")) {
+          return jsonResponse(recipe);
+        }
+
+        if (url.endsWith("/api/generate/preflight")) {
           return jsonResponse({
-            positive: "believable still photo, golden hour balcony",
-            negative: "no plastic skin",
-            seed: 42,
-            width: 1024,
-            height: 1024,
-            steps: 30,
-            cfg: 6.5,
-            lora_files: []
+            ready: true,
+            settings: { checkpoint_name: "sdxl_base_1.0.safetensors" },
+            items: [
+              { id: "comfyui", label: "ComfyUI API", ok: true, detail: "ComfyUI is responding." },
+              { id: "checkpoint", label: "Checkpoint", ok: true, detail: "Checkpoint found." },
+              { id: "loras", label: "LoRA files", ok: true, detail: "No LoRA files selected." }
+            ],
+            warnings: []
           });
         }
 
         if (url.endsWith("/api/generate") && method === "POST") {
-          return jsonResponse({
-            prompt_id: "prompt-123",
-            recipe: {
-              positive: "believable still photo, golden hour balcony",
-              negative: "no plastic skin",
-              seed: 42,
-              width: 1024,
-              height: 1024,
-              steps: 30,
-              cfg: 6.5,
-              lora_files: []
-            }
-          });
+          return jsonResponse({ prompt_id: "prompt-123", recipe });
         }
 
         if (url.endsWith("/api/generate/jobs/prompt-123") && method === "GET") {
@@ -286,100 +242,12 @@ describe("App", () => {
           });
         }
 
-        if (url.endsWith("/api/training/scan")) {
-          return jsonResponse({
-            dataset_id: "dataset-1",
-            name: "identity",
-            dataset_type: "fictional_face_identity",
-            accepted_count: 12,
-            rejected_count: 2,
-            duplicate_count: 1,
-            ignored_count: 3,
-            accepted: [],
-            rejected: [],
-            warnings: ["Skipped unreadable image."]
-          });
-        }
-
-        if (url.endsWith("/api/training/jobs")) {
+        if (url.endsWith("/api/training/jobs") && method === "GET") {
           return jsonResponse([]);
         }
 
         if (url.endsWith("/api/training/runs") && method === "GET") {
           return jsonResponse([]);
-        }
-
-        if (url.endsWith("/api/learning/global-job") && method === "POST") {
-          return jsonResponse({
-            prep: {
-              output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\learn-1",
-              processed_count: 10,
-              cropped_count: 8,
-              skipped_count: 2,
-              ai_attempted_count: 10,
-              ai_guided_count: 8,
-              ai_failed_count: 2,
-              face_guided_count: 0,
-              fallback_count: 0,
-              warnings: [],
-              images: []
-            },
-            training_job: {
-              job_id: "learn-job-1",
-              dataset_id: "global-body-pack-20260502010101",
-              dataset_path: "H:\\Desktop\\Liidar_Dataset_Crops\\learn-1",
-              output_dir: "outputs/global_lora",
-              base_model_path: "models/sdxl_base_1.0.safetensors",
-              lora_name: "global_body_pack_v001",
-              dataset_type: "body_shape",
-              global_pack: true,
-              resolution: 1024,
-              repeats: 10,
-              batch_size: 1,
-              max_train_steps: 1200,
-              learning_rate: 0.0001,
-              network_dim: 32,
-              network_alpha: 16,
-              accepted_image_count: 8,
-              completed_lora_path: null,
-              config_path: "H:\\studio\\config\\training\\learn-job-1.json"
-            },
-            version: 1,
-            warnings: ["Global learning job is ready. Run the trainer with this config, then register the completed LoRA to activate it."]
-          });
-        }
-
-        if ((url.endsWith("/api/training/learn-job-1/runs") || url.endsWith("/api/training/job-1/runs")) && method === "POST") {
-          const directJob = url.endsWith("/api/training/job-1/runs");
-          return jsonResponse({
-            run_id: "run-1",
-            job_id: directJob ? "job-1" : "learn-job-1",
-            status: "running",
-            trainer_entrypoint: "tools/train_global_lora.ps1",
-            config_path: "H:\\studio\\config\\training\\learn-job-1.json",
-            output_lora_path: directJob ? "outputs/lora\\ari_style.safetensors" : "H:\\studio\\outputs\\global_lora\\global_body_pack_v001.safetensors",
-            process_id: 4242,
-            exit_code: null,
-            log_path: "H:\\studio\\logs\\training-run-1.log",
-            tail: ["Starting training command:"],
-            error: null
-          });
-        }
-
-        if (url.endsWith("/api/training/runs/run-1") && method === "GET") {
-          return jsonResponse({
-            run_id: "run-1",
-            job_id: "job-1",
-            status: "completed",
-            trainer_entrypoint: "tools/train_global_lora.ps1",
-            config_path: "H:\\studio\\config\\training\\learn-job-1.json",
-            output_lora_path: "outputs/lora\\ari_style.safetensors",
-            process_id: 4242,
-            exit_code: 0,
-            log_path: "H:\\studio\\logs\\training-run-1.log",
-            tail: ["Starting training command:", "wrote global_body_pack_v001.safetensors"],
-            error: null
-          });
         }
 
         if (url.endsWith("/api/dataset-prep/jobs") && method === "POST") {
@@ -399,7 +267,7 @@ describe("App", () => {
             output_folder: null,
             scan_mode: "local",
             use_ai: false,
-            ai_max_images: 25,
+            ai_max_images: 0,
             cancel_requested: false,
             error: null,
             result: null
@@ -414,16 +282,16 @@ describe("App", () => {
             processed_count: 10,
             cropped_count: 8,
             skipped_count: 2,
-            ai_attempted_count: 5,
-            ai_guided_count: 3,
-            ai_failed_count: 2,
+            ai_attempted_count: 0,
+            ai_guided_count: 0,
+            ai_failed_count: 0,
             face_guided_count: 4,
             fallback_count: 1,
             active_file: null,
             output_folder: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1",
             scan_mode: "local",
             use_ai: false,
-            ai_max_images: 25,
+            ai_max_images: 0,
             cancel_requested: false,
             error: null,
             result: {
@@ -431,59 +299,56 @@ describe("App", () => {
               processed_count: 10,
               cropped_count: 8,
               skipped_count: 2,
-              ai_attempted_count: 5,
-              ai_guided_count: 3,
-              ai_failed_count: 2,
+              ai_attempted_count: 0,
+              ai_guided_count: 0,
+              ai_failed_count: 0,
               face_guided_count: 4,
               fallback_count: 1,
-              warnings: ["1 crop used center fallback because a face/body anchor was not detected; review those outputs manually."],
-              images: [
-                {
-                  source_path: "H:\\raw\\one.jpg",
-                  output_path: "H:\\Desktop\\Liidar_Dataset_Crops\\run-1\\one_chest_detail_0001.jpg",
-                  width: 800,
-                  height: 1200,
-                  face_count: 1,
-                  accepted: true,
-                  reason: "chest detail crop from local AI scan",
-                  method: "local_ai",
-                  crop_box: [10, 120, 700, 760]
-                }
-              ]
+              warnings: [],
+              images: []
             }
           });
         }
 
-        if (url.endsWith("/api/training/config")) {
+        if (url.endsWith("/api/training/config") && method === "POST") {
+          return jsonResponse(trainingJob());
+        }
+
+        if (url.endsWith("/api/training/job-1/runs") && method === "POST") {
           return jsonResponse({
+            run_id: "run-1",
             job_id: "job-1",
-            dataset_id: "dataset-1",
-            dataset_path: "H:\\photos\\training-pack",
-            output_dir: "outputs/lora",
-            base_model_path: "base.safetensors",
-            lora_name: "ari_style",
-            dataset_type: "body_shape",
-            global_pack: true,
-            resolution: 1024,
-            repeats: 10,
-            batch_size: 1,
-            max_train_steps: 1200,
-            learning_rate: 0.0001,
-            network_dim: 32,
-            network_alpha: 16,
-            accepted_image_count: 12,
-            completed_lora_path: null,
-            config_path: "H:\\studio\\config\\training\\job-1.json"
+            status: "running",
+            trainer_entrypoint: "tools/train_global_lora.ps1",
+            config_path: "H:\\studio\\config\\training\\job-1.json",
+            output_lora_path: null,
+            process_id: 4242,
+            exit_code: null,
+            log_path: "H:\\studio\\logs\\training-run-1.log",
+            progress_current: 10,
+            progress_total: 1200,
+            progress_percent: 1,
+            tail: ["Starting training command:"],
+            error: null
           });
         }
 
-        if (url.includes("/api/training/status")) {
+        if (url.endsWith("/api/training/runs/run-1") && method === "GET") {
           return jsonResponse({
-            trainer_entrypoint: "train_network.py",
+            run_id: "run-1",
+            job_id: "job-1",
+            status: "completed",
+            trainer_entrypoint: "tools/train_global_lora.ps1",
             config_path: "H:\\studio\\config\\training\\job-1.json",
-            trainer_entrypoint_exists: false,
-            config_path_exists: true,
-            warnings: ["Trainer entrypoint is missing: train_network.py"]
+            output_lora_path: "outputs/global_lora\\global_body_pack.safetensors",
+            process_id: 4242,
+            exit_code: 0,
+            log_path: "H:\\studio\\logs\\training-run-1.log",
+            progress_current: 1200,
+            progress_total: 1200,
+            progress_percent: 100,
+            tail: ["wrote global_body_pack.safetensors"],
+            error: null
           });
         }
 
@@ -497,285 +362,89 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders runtime, character, generation, and training panels", async () => {
+  it("renders the current three-module shell with live system status", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("tab", { name: "Runtime status" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Characters" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Characters" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Generate" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Training" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Dataset prep" })).toBeInTheDocument();
-  });
-
-  it("shows live system usage in the sidebar", async () => {
-    render(<App />);
-
+    expect(screen.queryByRole("tab", { name: "Runtime status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Dataset prep" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh studio data" })).not.toBeInTheDocument();
     expect(await screen.findByRole("region", { name: "Live system monitor" })).toBeInTheDocument();
-    expect(screen.getAllByText("CPU").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("RAM").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GPU").length).toBeGreaterThan(0);
-    expect(screen.getByText("15.2 / 31.9 GB")).toBeInTheDocument();
-    expect(screen.getByText("7.25 GB dedicated")).toBeInTheDocument();
+    expect(screen.getByText("7.25 GB VRAM")).toBeInTheDocument();
   });
 
-  it("shows character editor fields from the backend profile", async () => {
+  it("keeps character setup focused on blueprint references", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await screen.findByDisplayValue("Ari");
-    expect(screen.getByLabelText("Age category")).toBeInTheDocument();
-    expect(screen.getByLabelText("Reference image paths")).toBeInTheDocument();
-    expect(screen.getByLabelText("Face summary")).not.toBeVisible();
-    await user.click(screen.getByText("Advanced profile controls"));
-    expect(screen.getByLabelText("Face summary")).toBeVisible();
-    expect(screen.getByLabelText("Negative notes")).toBeVisible();
-  });
+    expect(await screen.findByDisplayValue("Ari")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Age category")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /build blueprint/i })).toBeDisabled();
 
-  it("keeps reference actions disabled until images are selected", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-
-    expect(screen.getByRole("button", { name: /analyze references/i })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: /create draft from references/i })).not.toBeInTheDocument();
-  });
-
-  it("keeps the character workflow focused on reference analysis", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.type(
-      screen.getByLabelText("Reference image paths"),
-      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png\nH:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-57-43.png"
-    );
-
-    expect(screen.getByRole("button", { name: /analyze references/i })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /create draft from references/i })).not.toBeInTheDocument();
-  });
-
-  it("selects reference images from the native Windows picker control", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
     await user.click(screen.getByRole("button", { name: /select images/i }));
-
     expect(await screen.findByText("1 image selected.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /show selected image list/i }));
-    expect(screen.getAllByText("H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\picked.png").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /analyze references/i })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /build blueprint/i }));
+
+    expect(await screen.findByText("Reference blueprint")).toBeInTheDocument();
+    expect(screen.getByText("76")).toBeInTheDocument();
+    expect(screen.getByText("Prompt-ready reference intelligence.")).toBeInTheDocument();
   });
 
-  it("starts a new character and supports folder reference selection", async () => {
+  it("saves character blueprints through the current copy", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.click(screen.getByRole("button", { name: /new character/i }));
-    expect(screen.getByLabelText("Display name")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: /new blueprint/i }));
+    await user.type(screen.getByLabelText("Blueprint name"), "Nadia");
+    await user.click(screen.getByRole("button", { name: /save blueprint/i }));
 
-    await user.click(screen.getByRole("button", { name: /select folder/i }));
-    expect(screen.getAllByText("1 selected").length).toBeGreaterThan(0);
-
-    await user.click(screen.getByRole("button", { name: /show selected image list/i }));
-    await user.click(screen.getByRole("button", { name: /remove h:\\devwork\\win_apps\\liidar\\models\\marianna\\picked.png/i }));
-    expect(screen.getByText("0 selected")).toBeInTheDocument();
-  });
-
-  it("saves a completed character profile", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.click(screen.getByRole("button", { name: /new character/i }));
-    await user.type(screen.getByLabelText("Display name"), "Nadia");
-    await user.click(screen.getByText("Advanced profile controls"));
-    await user.type(screen.getByLabelText("Face summary"), "fictional adult face with soft features");
-    await user.click(screen.getByRole("button", { name: /save character/i }));
-
-    expect(await screen.findByText("Character saved.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Blueprint saved.")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /nadia/i })).toBeInTheDocument();
   });
 
-  it("analyzes selected references into an editable character draft", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.clear(await screen.findByLabelText("Display name"));
-    await user.type(
-      screen.getByLabelText("Reference image paths"),
-      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
-    );
-    await user.click(screen.getByRole("button", { name: /analyze references/i }));
-
-    expect(await screen.findByDisplayValue("Marianna")).toBeInTheDocument();
-    expect(screen.getByText("76")).toBeInTheDocument();
-    expect(screen.getByText("a woman in a white shirt and red bikini on the beach")).toBeInTheDocument();
-    expect(screen.getByText("Reference blueprint")).toBeInTheDocument();
-    expect(screen.getByText("What should stay consistent")).toBeInTheDocument();
-    expect(screen.getAllByText("long dark wavy hair").length).toBeGreaterThan(0);
-    expect(screen.getByText("Reference coverage")).toBeInTheDocument();
-    expect(screen.getByText("Signals to improve")).toBeInTheDocument();
-    expect(screen.getByText("swimwear")).toBeInTheDocument();
-    expect(screen.getByText("covered by swimwear or clothing")).toBeInTheDocument();
-    expect(screen.getByText("Add 2-4 more references for stronger identity consistency.")).toBeInTheDocument();
-    await user.click(screen.getByText("Advanced profile controls"));
-    expect((screen.getByLabelText("Face summary") as HTMLTextAreaElement).value).toContain("offline image analysis");
-    expect((screen.getByLabelText("Skin tone") as HTMLTextAreaElement).value).toContain("warm");
-  });
-
-  it("keeps reference analysis scoped to the active character", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.type(
-      screen.getByLabelText("Reference image paths"),
-      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
-    );
-    await user.click(screen.getByRole("button", { name: /analyze references/i }));
-    expect(await screen.findByText("Reference blueprint")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /new character/i }));
-
-    expect(screen.queryByText("Reference blueprint")).not.toBeInTheDocument();
-    expect(screen.getByText("Setup readiness")).toBeInTheDocument();
-  });
-
-  it("shows analysis progress while references are being analyzed", async () => {
-    const fetchMock = vi.mocked(fetch);
-    const defaultFetch = fetchMock.getMockImplementation();
-    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/api/characters/analyze-references")) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      return defaultFetch?.(input, init) ?? jsonResponse({});
-    });
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Characters" }));
-    await user.type(
-      screen.getByLabelText("Reference image paths"),
-      "H:\\DevWork\\Win_Apps\\Liidar\\Models\\Marianna\\sozee_2026-04-30_11-47-30.png"
-    );
-    await user.click(screen.getByRole("button", { name: /analyze references/i }));
-
-    expect(await screen.findByRole("progressbar", { name: /analyzing references/i })).toBeInTheDocument();
-    expect(screen.getByText(/Reading selected images/i)).toBeInTheDocument();
-  });
-
-  it("previews a believable still photo recipe", async () => {
+  it("enhances, previews, and queues generation from one brief", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Generate" }));
-    await user.click(screen.getByRole("button", { name: /preview recipe/i }));
+    await user.click(screen.getByRole("button", { name: /enhance brief/i }));
+    expect((await screen.findAllByText("Brief enhanced locally.")).length).toBeGreaterThan(0);
+    expect(screen.getAllByDisplayValue("golden hour balcony, realistic adult studio photo").length).toBeGreaterThan(0);
 
-    expect(await screen.findByText("believable still photo, golden hour balcony")).toBeInTheDocument();
-  });
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText("Generation recipe")).toBeInTheDocument();
+    expect(screen.getByText("Ready to generate")).toBeInTheDocument();
 
-  it("tracks queued generation jobs through completed outputs", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Generate" }));
-    await user.click(screen.getByRole("button", { name: /queue generation/i }));
-
-    expect(await screen.findByText("Queued still photo job prompt-123.")).toBeInTheDocument();
-    expect(screen.getByText("Generation jobs")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    expect((await screen.findAllByText("Generation queued: prompt-123.")).length).toBeGreaterThan(0);
     expect(await screen.findByText("local_model_studio_00001_.png")).toBeInTheDocument();
-    expect(screen.getByText("Completed outputs")).toBeInTheDocument();
   });
 
-  it("renders simplified training controls for prepared crop folders", async () => {
+  it("prepares cropped images, saves setup, and starts training", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Training" }));
-    expect(screen.getByText("Global improvement training")).toBeInTheDocument();
-    expect(screen.getByLabelText("Prepared crop folder")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Improvement type" })).toHaveTextContent("Body proportions");
-    expect(screen.queryByText("Scan data pack")).not.toBeInTheDocument();
-    expect(screen.queryByText("Scan review")).not.toBeInTheDocument();
+    const trainingPanel = screen.getByRole("heading", { name: "Train sculpture pack" }).closest("section");
+    expect(trainingPanel).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /select folder/i }));
-    expect((await screen.findAllByDisplayValue("H:\\photos\\training-pack")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("12")).length).toBeGreaterThan(0);
-  });
+    await user.click(within(trainingPanel as HTMLElement).getAllByRole("button", { name: /select folder/i })[0]);
+    expect(await screen.findByDisplayValue("H:\\raw")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /prepare references/i }));
 
-  it("prepares dataset crops with local AI controls only", async () => {
-    const user = userEvent.setup();
-    render(<App />);
+    expect(await screen.findByText("8 crops ready")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).toBeInTheDocument();
 
-    await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
-    expect(screen.getByRole("heading", { name: "Dataset prep", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Crop target" })).toHaveTextContent("Chest detail");
-    expect(screen.getByText("Local AI scanning runs on this PC.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Scanner")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /save training setup/i }));
+    expect((await screen.findAllByText("Global training job created for global_body_pack.")).length).toBeGreaterThan(0);
+    expect(screen.getByText("global_body_pack is ready to train")).toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("Source folder"));
-    await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
-    await user.click(screen.getByRole("button", { name: /create crop folder/i }));
-
-    expect(await screen.findByRole("progressbar", { name: /dataset prep progress/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
-    expect((await screen.findAllByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
-    expect(screen.queryByText("Local AI crop")).not.toBeInTheDocument();
-    expect(screen.queryByText("chest detail crop from local AI scan")).not.toBeInTheDocument();
-  });
-
-  it("uses backend config path and surfaces trainer warnings", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Training" }));
-    await user.click(screen.getByRole("button", { name: /select folder/i }));
-    await user.click(await screen.findByRole("button", { name: /create training job/i }));
-
-    expect(await screen.findByText(/Training job ready: ari_style/i)).toBeInTheDocument();
-
-    await user.click(screen.getByText("Advanced trainer details"));
-    expect(await screen.findByDisplayValue("H:\\studio\\config\\training\\job-1.json")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /check status/i }));
-
-    expect(await screen.findByText("Trainer entrypoint is missing: train_network.py")).toBeInTheDocument();
-  });
-
-  it("uses the latest dataset prep folder for training", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Dataset prep" }));
-    await user.clear(screen.getByLabelText("Source folder"));
-    await user.type(screen.getByLabelText("Source folder"), "H:\\raw");
-    await user.click(screen.getByRole("button", { name: /create crop folder/i }));
-    expect((await screen.findAllByText("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
-
-    await user.click(await screen.findByRole("tab", { name: "Training" }));
-    expect((await screen.findAllByDisplayValue("H:\\Desktop\\Liidar_Dataset_Crops\\run-1")).length).toBeGreaterThan(0);
-    expect(screen.getByText("8")).toBeInTheDocument();
-  });
-
-  it("starts and monitors a local global training run", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("tab", { name: "Training" }));
-    await user.click(screen.getByRole("button", { name: /select folder/i }));
-    await user.click(screen.getByRole("button", { name: /create training job/i }));
-    await screen.findByText(/Training job ready: ari_style/i);
-
-    await user.click(screen.getByRole("button", { name: /start training now/i }));
-
-    expect(await screen.findByText("Training started for ari_style.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /start training/i }));
+    expect((await screen.findAllByText("Training started for global_body_pack.")).length).toBeGreaterThan(0);
     expect(screen.getByText("PID 4242")).toBeInTheDocument();
-    expect(screen.getAllByText("outputs/lora\\ari_style.safetensors").length).toBeGreaterThan(0);
   });
 });

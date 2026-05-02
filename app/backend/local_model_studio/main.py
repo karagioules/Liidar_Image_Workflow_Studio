@@ -18,10 +18,12 @@ from local_model_studio.dataset_scanner import scan_dataset
 from local_model_studio.dataset_prep_jobs import DatasetPrepJobManager
 from local_model_studio.dataset_prepper import _anthropic_error_message, prepare_dataset_crops
 from local_model_studio.file_browser import IMAGE_SUFFIXES, browse_filesystem, render_thumbnail
+from local_model_studio.generation_settings import GenerationSettingsStore, comfy_checkpoint_path, comfy_lora_path
 from local_model_studio.global_learning import create_global_learning_job
 from local_model_studio.local_image_tagger import local_tagger_from_workspace
 from local_model_studio.local_vision_captioner import local_captioner_from_workspace
 from local_model_studio.paths import WorkspacePaths, default_workspace_root
+from local_model_studio.prompt_enhancer import enhance_photo_brief
 from local_model_studio.profile_store import ProfileStore
 from local_model_studio.prompt_builder import build_prompt_recipe
 from local_model_studio.reference_analyzer import analyze_references
@@ -37,9 +39,14 @@ from local_model_studio.schemas import (
     GenerationJobResponse,
     GenerationJobStatus,
     GenerationOutputImage,
+    GenerationPreflightItem,
+    GenerationPreflightResponse,
     GenerationRequest,
+    GenerationSettings,
     PathBrowserResponse,
     PromptRecipe,
+    PromptEnhanceRequest,
+    PromptEnhanceResponse,
     ReferenceAnalysisRequest,
     ReferenceAnalysisResponse,
     RuntimeStatus,
@@ -65,9 +72,6 @@ from local_model_studio.training_store import TrainingStore
 from local_model_studio.workflow_templates import render_sdxl_workflow
 
 
-CHECKPOINT_NAME = "sdxl_base_1.0.safetensors"
-
-
 class TrainingConfigPayload(BaseModel):
     request: TrainingConfigRequest
     accepted_image_count: int = Field(gt=0)
@@ -91,6 +95,7 @@ def create_app(
     training = TrainingStore(workspace_paths)
     training_runs = TrainingRunManager(workspace_paths, training)
     api_keys = ApiKeyStore(workspace_paths.root)
+    generation_settings = GenerationSettingsStore(workspace_paths)
     prep_jobs = DatasetPrepJobManager()
     comfy = comfy_client or ComfyClient()
 
@@ -250,13 +255,41 @@ def create_app(
     @app.post("/api/generate/preview", response_model=PromptRecipe)
     def preview_generation(request: GenerationRequest) -> PromptRecipe:
         profile = _get_profile_or_404(profiles, request.character_id)
-        return build_prompt_recipe(profile, request, _active_global_lora_files(training))
+        return build_prompt_recipe(profile, request, _routed_global_lora_files(training, request, profile))
+
+    @app.post("/api/generate/enhance-prompt", response_model=PromptEnhanceResponse)
+    def enhance_generation_prompt(request: PromptEnhanceRequest) -> PromptEnhanceResponse:
+        profile = _optional_profile_for_enhancement(profiles, request.character_id)
+        return enhance_photo_brief(profile, request.brief, request.mode)
+
+    @app.get("/api/generate/settings", response_model=GenerationSettings)
+    def get_generation_settings() -> GenerationSettings:
+        try:
+            return generation_settings.load()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/generate/settings", response_model=GenerationSettings)
+    def save_generation_settings(settings: GenerationSettings) -> GenerationSettings:
+        return generation_settings.save(settings)
+
+    @app.post("/api/generate/preflight", response_model=GenerationPreflightResponse)
+    def generation_preflight(request: GenerationRequest) -> GenerationPreflightResponse:
+        profile = _get_profile_or_404(profiles, request.character_id)
+        settings = generation_settings.load()
+        recipe = build_prompt_recipe(profile, request, _routed_global_lora_files(training, request, profile))
+        return _generation_preflight(workspace_paths, comfy, settings, recipe)
 
     @app.post("/api/generate", response_model=GenerationJobResponse)
     def generate(request: GenerationRequest) -> GenerationJobResponse:
         profile = _get_profile_or_404(profiles, request.character_id)
-        recipe = build_prompt_recipe(profile, request, _active_global_lora_files(training))
-        workflow = render_sdxl_workflow(recipe, CHECKPOINT_NAME)
+        settings = generation_settings.load()
+        recipe = build_prompt_recipe(profile, request, _routed_global_lora_files(training, request, profile))
+        preflight = _generation_preflight(workspace_paths, comfy, settings, recipe)
+        if not preflight.ready:
+            failed = [item.detail for item in preflight.items if not item.ok]
+            raise HTTPException(status_code=409, detail="Generation is not ready: " + " ".join(failed))
+        workflow = render_sdxl_workflow(recipe, settings.checkpoint_name)
         try:
             prompt_id = comfy.queue_prompt(workflow)
         except httpx.HTTPError as exc:
@@ -265,7 +298,7 @@ def create_app(
                 detail=f"ComfyUI request failed: {exc}",
             ) from exc
         except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail=_friendly_comfy_error(str(exc))) from exc
         return GenerationJobResponse(prompt_id=prompt_id, recipe=recipe)
 
     @app.get("/api/generate/jobs/{prompt_id}", response_model=GenerationJobStatus)
@@ -418,18 +451,139 @@ def _get_profile_or_404(store: ProfileStore, profile_id: str) -> CharacterProfil
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _optional_profile_for_enhancement(store: ProfileStore, profile_id: str) -> CharacterProfile:
+    if not profile_id:
+        return CharacterProfile(id="draft", display_name="Draft character")
+    try:
+        return store.get(profile_id)
+    except (KeyError, ValueError):
+        return CharacterProfile(id="draft", display_name="Draft character")
+
+
 def _server_ai_request(request: DatasetPrepRequest, api_keys: ApiKeyStore) -> DatasetPrepRequest:
     if request.effective_scan_mode() != "claude":
         return request
     return request.model_copy(update={"ai_model": api_keys.model()})
 
 
-def _active_global_lora_files(training: TrainingStore) -> list[str]:
-    return [
-        job.completed_lora_path
-        for job in training.list()
-        if job.global_pack and job.completed_lora_path
+def _routed_global_lora_files(
+    training: TrainingStore,
+    request: GenerationRequest,
+    profile: CharacterProfile,
+) -> list[str]:
+    if request.global_lora_files is not None:
+        return request.global_lora_files
+    prompt_text = " ".join(
+        [
+            request.scene_prompt,
+            request.extra_negative,
+            profile.display_name,
+            profile.id,
+            profile.body_shape,
+            profile.chest,
+            profile.style_notes,
+        ]
+    ).lower()
+    scored: list[tuple[int, str]] = []
+    for job in training.list():
+        if not job.global_pack or not job.completed_lora_path:
+            continue
+        score = _lora_route_score(job.dataset_type, job.lora_name, prompt_text, profile)
+        if score > 0:
+            scored.append((score, job.completed_lora_path))
+    return [path for _, path in sorted(scored, key=lambda item: item[0], reverse=True)[:4]]
+
+
+def _lora_route_score(
+    dataset_type: str | None,
+    lora_name: str,
+    prompt_text: str,
+    profile: CharacterProfile,
+) -> int:
+    name = lora_name.lower().replace("_", " ")
+    text = f"{prompt_text} {name}"
+    score = 0
+    if dataset_type in {"body_part", "body_shape"}:
+        score += _contains_any(prompt_text, ["nude", "body", "figure", "torso", "waist", "hips", "chest", "breast", "curves", "full body", "bending"])
+    elif dataset_type == "pose":
+        score += _contains_any(prompt_text, ["pose", "standing", "sitting", "lying", "kneeling", "bending", "walking", "looking back"])
+    elif dataset_type == "style":
+        score += _contains_any(prompt_text, ["film", "studio", "selfie", "cinematic", "candid", "polaroid", "flash", "low light", "lighting"])
+    elif dataset_type == "fictional_face_identity":
+        character_terms = [profile.id.lower(), profile.display_name.lower()]
+        score += 3 if any(term and term in name for term in character_terms) else 0
+    if score > 0:
+        score += _contains_any(name, ["body", "pose", "style", "realism", "chest", "breast", "identity"])
+    return score
+
+
+def _contains_any(value: str, needles: list[str]) -> int:
+    return sum(1 for needle in needles if needle in value)
+
+
+def _generation_preflight(
+    paths: WorkspacePaths,
+    comfy: ComfyClient,
+    settings: GenerationSettings,
+    recipe: PromptRecipe,
+) -> GenerationPreflightResponse:
+    checkpoint_path = comfy_checkpoint_path(paths, settings.checkpoint_name)
+    lora_paths = [comfy_lora_path(paths, lora_file) for lora_file in recipe.lora_files]
+    comfy_available = _comfy_is_available(comfy)
+    checkpoint_exists = checkpoint_path.is_file()
+    items = [
+        GenerationPreflightItem(
+            id="comfyui",
+            label="ComfyUI API",
+            ok=comfy_available,
+            detail="ComfyUI is responding on 127.0.0.1:8188." if comfy_available else "ComfyUI is not responding on 127.0.0.1:8188.",
+        ),
+        GenerationPreflightItem(
+            id="checkpoint",
+            label="Checkpoint",
+            ok=checkpoint_exists,
+            detail=f"{settings.checkpoint_name} found." if checkpoint_exists else f"Missing {checkpoint_path}.",
+        ),
+        GenerationPreflightItem(
+            id="loras",
+            label="LoRA files",
+            ok=all(path.is_file() for path in lora_paths),
+            detail=_lora_preflight_detail(lora_paths),
+        ),
     ]
+    return GenerationPreflightResponse(
+        ready=all(item.ok for item in items),
+        settings=settings,
+        items=items,
+        warnings=[],
+    )
+
+
+def _comfy_is_available(comfy: ComfyClient) -> bool:
+    checker = getattr(comfy, "is_available", None)
+    if not callable(checker):
+        return False
+    return bool(checker())
+
+
+def _lora_preflight_detail(lora_paths: list[Path]) -> str:
+    if not lora_paths:
+        return "No LoRA files selected."
+    missing = [path for path in lora_paths if not path.is_file()]
+    if missing:
+        return "Missing LoRA file: " + ", ".join(str(path) for path in missing)
+    return f"{len(lora_paths)} LoRA file{'s' if len(lora_paths) != 1 else ''} found."
+
+
+def _friendly_comfy_error(message: str) -> str:
+    lowered = message.lower()
+    if "checkpoint" in lowered or "ckpt" in lowered:
+        return f"{message} Check that the configured checkpoint exists in ComfyUI\\models\\checkpoints."
+    if "lora" in lowered:
+        return f"{message} Check that selected LoRA files exist in ComfyUI\\models\\loras or use absolute paths."
+    if "connect" in lowered or "connection" in lowered:
+        return "ComfyUI is not reachable at 127.0.0.1:8188. Start ComfyUI before queuing generation."
+    return message
 
 
 def _resolve_workspace_path(root: Path, path: str | Path) -> Path:

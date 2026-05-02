@@ -5,7 +5,14 @@ export type DatasetType = "body_part" | "body_shape" | "pose" | "style" | "ficti
 export type FacePolicy = "reject_faces" | "redact_faces" | "body_part_crops_only";
 export type SourceRights = "synthetic" | "owned" | "licensed" | "consented";
 export type VisibilityLevel = "clear" | "partial" | "covered" | "not_visible" | "unclear";
-export type DatasetPrepTarget = "chest_detail" | "upper_torso" | "full_body_context";
+export type DatasetPrepTarget =
+  | "face_identity"
+  | "chest_detail"
+  | "butt_hips"
+  | "genital_detail"
+  | "legs_feet"
+  | "upper_torso"
+  | "full_body_context";
 export type DatasetPrepScanMode = "local" | "claude" | "off";
 export type DatasetPrepJobState = "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
 export type TrainingRunState = "queued" | "running" | "cancelled" | "completed" | "failed";
@@ -165,6 +172,37 @@ export interface GenerationRequest {
   seed: number | null;
   global_lora_files?: string[] | null;
   lora_strength?: number;
+}
+
+export interface PromptEnhanceRequest {
+  character_id: string;
+  brief: string;
+  mode: GenerationMode;
+}
+
+export interface PromptEnhanceResponse {
+  scene_prompt: string;
+  body_detail_prompt: string;
+  extra_negative: string;
+  summary: string;
+}
+
+export interface GenerationSettings {
+  checkpoint_name: string;
+}
+
+export interface GenerationPreflightItem {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface GenerationPreflightResponse {
+  ready: boolean;
+  settings: GenerationSettings;
+  items: GenerationPreflightItem[];
+  warnings: string[];
 }
 
 export interface PromptRecipe {

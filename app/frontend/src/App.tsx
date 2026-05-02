@@ -1,9 +1,8 @@
-import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Cpu, FolderOpen, Play, Plus, RefreshCcw, Save, Scissors, Search, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Copy, FolderOpen, Play, Plus, RefreshCcw, Save, Scissors, Search, UserRound, X } from "lucide-react";
 import React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type {
-  AdultAgeCategory,
   AdultContentSignals,
   AttributeDetail,
   CharacterProfile,
@@ -15,6 +14,8 @@ import type {
   FacePolicy,
   GenerationJobStatus,
   GenerationMode,
+  GenerationPreflightResponse,
+  GenerationSettings,
   GlobalLearningResponse,
   PromptRecipe,
   QualityPreset,
@@ -27,10 +28,12 @@ import type {
   VisionTag
 } from "./types";
 
-type TabId = "runtime" | "characters" | "generate" | "training" | "prep";
+type TabId = "characters" | "generate" | "training";
 type TrainingPreset = "fast" | "balanced" | "high_quality";
 type PackInfluence = "natural" | "balanced" | "strong";
 type TrackedGenerationJob = GenerationJobStatus & { recipe: PromptRecipe };
+type AppLogLevel = "info" | "success" | "warning" | "error";
+type AppLogEntry = { id: string; at: string; level: AppLogLevel; message: string };
 
 const blankCharacter: CharacterProfile = {
   id: "new-character",
@@ -58,25 +61,13 @@ function newCharacterProfile(): CharacterProfile {
   };
 }
 
-const tabs: Array<{ id: TabId; label: string; icon: typeof Activity }> = [
-  { id: "runtime", label: "Runtime status", icon: Cpu },
+const tabs: Array<{ id: TabId; label: string; icon: typeof Camera }> = [
   { id: "characters", label: "Characters", icon: UserRound },
   { id: "generate", label: "Generate", icon: Camera },
-  { id: "training", label: "Training", icon: ClipboardList },
-  { id: "prep", label: "Dataset prep", icon: Scissors }
+  { id: "training", label: "Training", icon: ClipboardList }
 ];
 
-const ageCategories: AdultAgeCategory[] = ["adult_18_plus", "adult_21_plus", "adult_25_plus", "adult_30_plus"];
-const generationModes: GenerationMode[] = ["portrait", "full_body", "lifestyle_post", "studio", "reference_match"];
-const qualityPresets: QualityPreset[] = ["fast", "balanced", "high", "ultra"];
-const datasetTypes: DatasetType[] = ["body_part", "body_shape", "pose", "style", "fictional_face_identity"];
-const facePolicies: FacePolicy[] = ["reject_faces", "redact_faces", "body_part_crops_only"];
-const prepTargets: DatasetPrepTarget[] = ["chest_detail", "upper_torso", "full_body_context"];
-const trainingPresets: Array<{ id: TrainingPreset; label: string; description: string }> = [
-  { id: "balanced", label: "Balanced", description: "Best default for reusable global packs." },
-  { id: "fast", label: "Fast", description: "Quick test pass with fewer steps." },
-  { id: "high_quality", label: "High quality", description: "Slower, stronger adapter training." }
-];
+const prepTargets: DatasetPrepTarget[] = ["face_identity", "chest_detail", "butt_hips", "genital_detail", "legs_feet", "full_body_context"];
 const packInfluenceOptions: Array<{ id: PackInfluence; label: string; strength: number; description: string }> = [
   { id: "natural", label: "Natural", strength: 0.55, description: "Light influence, keeps the prompt in charge." },
   { id: "balanced", label: "Balanced", strength: 0.75, description: "Default blend between prompt and trained pack." },
@@ -85,14 +76,21 @@ const packInfluenceOptions: Array<{ id: PackInfluence; label: string; strength: 
 
 function LiidarLogo() {
   return (
-    <svg className="brand-logo" viewBox="0 0 32 32" aria-hidden="true">
-      <path className="brand-logo-beam" d="M10 6v20M10 26h11" />
-      <path className="brand-logo-scan" d="M15 9h10M15 16h7M15 23h10" />
-      <circle cx="7" cy="10" r="1.8" />
-      <circle cx="24" cy="16" r="1.8" />
-      <circle cx="12" cy="22" r="1.8" />
+    <svg className="brand-logo" viewBox="0 0 40 40" aria-hidden="true">
+      <path className="brand-logo-body" d="M20 5.5c4.5 4.1 6.8 9.1 6.8 15.2 0 5.2-2.2 9.4-6.8 12.9-4.6-3.5-6.8-7.7-6.8-12.9 0-6.1 2.3-11.1 6.8-15.2Z" />
+      <path className="brand-logo-cut" d="M20 8.4v24.1M14.2 17.3c3.7 1.9 7.9 1.9 11.6 0M13.8 24.1c4.2 2.1 8.2 2.1 12.4 0" />
+      <path className="brand-logo-orbit" d="M8 28.5c5.8 5.5 18.2 5.5 24 0" />
     </svg>
   );
+}
+
+function tabSubtitle(tab: TabId) {
+  const subtitles: Record<TabId, string> = {
+    characters: "Build identity blueprints from adult references.",
+    generate: "Compose finished stills from one clear brief.",
+    training: "Prepare high-quality sculpture packs for body detail."
+  };
+  return subtitles[tab];
 }
 
 function referencePathsText(profile: CharacterProfile): string {
@@ -114,24 +112,40 @@ function labelize(value: string) {
   return value.replace(/_/g, " ");
 }
 
-function datasetTypeLabel(value: DatasetType) {
-  const labels: Record<DatasetType, string> = {
-    body_part: "Body detail knowledge",
-    body_shape: "Body proportions",
-    pose: "Pose library",
-    style: "Photo realism / style",
-    fictional_face_identity: "Character identity adapter"
+function prepTargetLabel(value: DatasetPrepTarget) {
+  const labels: Record<DatasetPrepTarget, string> = {
+    face_identity: "Face / identity",
+    chest_detail: "Breasts / chest",
+    butt_hips: "Butt / hips",
+    genital_detail: "Genital detail",
+    legs_feet: "Legs / feet",
+    upper_torso: "Upper body",
+    full_body_context: "Full body"
   };
   return labels[value];
 }
 
-function prepTargetLabel(value: DatasetPrepTarget) {
-  const labels: Record<DatasetPrepTarget, string> = {
-    chest_detail: "Chest detail",
-    upper_torso: "Upper torso",
-    full_body_context: "Full-body context"
+function prepTargetHint(value: DatasetPrepTarget) {
+  const hints: Record<DatasetPrepTarget, string> = {
+    face_identity: "Use clear, consistent adult face references when the pack should preserve identity.",
+    chest_detail: "Use clear close examples when the pack should improve breast or chest anatomy.",
+    butt_hips: "Use images where the hips and butt are the main visible shape.",
+    genital_detail: "Use only clear adult references for precise anatomy detail.",
+    legs_feet: "Use full or lower-body images where legs and feet are visible.",
+    upper_torso: "Use this for shoulders, torso, waist, and upper-body consistency.",
+    full_body_context: "Use this for overall body shape, proportions, pose, and silhouette."
   };
-  return labels[value];
+  return hints[value];
+}
+
+function datasetTypeForPrepTarget(value: DatasetPrepTarget): DatasetType {
+  if (value === "face_identity") {
+    return "fictional_face_identity";
+  }
+  if (value === "full_body_context") {
+    return "body_shape";
+  }
+  return "body_part";
 }
 
 function trainingPresetSettings(preset: TrainingPreset) {
@@ -147,6 +161,27 @@ function trainingPresetSettings(preset: TrainingPreset) {
 function packNameFromDataset(name: string, type: DatasetType) {
   const base = name.trim() || `global-${type}`;
   return base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "global_improvement_pack";
+}
+
+function logTime() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function inferGenerationModeFromBrief(brief: string): GenerationMode {
+  const value = brief.toLowerCase();
+  if (/\b(full body|whole body|head to toe|standing|front view|side view)\b/.test(value)) {
+    return "full_body";
+  }
+  if (/\b(studio|backdrop|professional portrait|headshot)\b/.test(value)) {
+    return "studio";
+  }
+  if (/\b(reference|match|same pose|same composition)\b/.test(value)) {
+    return "reference_match";
+  }
+  if (/\b(selfie|mirror|candid|lifestyle|casual|social media)\b/.test(value)) {
+    return "lifestyle_post";
+  }
+  return "portrait";
 }
 
 function upsertTrainingRun(runs: TrainingRunStatus[], run: TrainingRunStatus) {
@@ -175,9 +210,14 @@ function upsertGenerationJob(jobs: TrackedGenerationJob[], job: TrackedGeneratio
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("runtime");
+  const [activeTab, setActiveTab] = useState<TabId>("generate");
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [liveMetrics, setLiveMetrics] = useState<SystemLiveMetrics | null>(null);
+  const [appLogs, setAppLogs] = useState<AppLogEntry[]>([
+    { id: "startup", at: logTime(), level: "info", message: "Studio opened. Checking backend." }
+  ]);
+  const lastLiveLogKey = useRef("");
+  const lastRuntimeLogKey = useRef("");
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [editingCharacter, setEditingCharacter] = useState<CharacterProfile>(blankCharacter);
@@ -186,13 +226,18 @@ function App() {
   const [error, setError] = useState("");
 
   const [mode, setMode] = useState<GenerationMode>("portrait");
-  const [quality, setQuality] = useState<QualityPreset>("balanced");
-  const [scenePrompt, setScenePrompt] = useState("soft natural light, believable still photo");
+  const [quality, setQuality] = useState<QualityPreset>("ultra");
+  const [photoBrief, setPhotoBrief] = useState("soft natural light, realistic adult studio photo");
+  const [scenePrompt, setScenePrompt] = useState("soft natural light, realistic adult studio photo");
   const [bodyDetailPrompt, setBodyDetailPrompt] = useState("");
   const [selectedGlobalLora, setSelectedGlobalLora] = useState("all");
   const [packInfluence, setPackInfluence] = useState<PackInfluence>("balanced");
   const [extraNegative, setExtraNegative] = useState("");
   const [generationJobs, setGenerationJobs] = useState<TrackedGenerationJob[]>([]);
+  const [generationSettings, setGenerationSettings] = useState<GenerationSettings>({ checkpoint_name: "sdxl_base_1.0.safetensors" });
+  const [generationPreflight, setGenerationPreflight] = useState<GenerationPreflightResponse | null>(null);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
+  const [enhancedPromptSummary, setEnhancedPromptSummary] = useState("");
 
   const [datasetName, setDatasetName] = useState("global-body-pack");
   const [sourceFolder, setSourceFolder] = useState("");
@@ -204,7 +249,7 @@ function App() {
   const [loraName, setLoraName] = useState("global_body_pack");
   const [outputDir, setOutputDir] = useState("outputs/global_lora");
   const [acceptedImageCount, setAcceptedImageCount] = useState(0);
-  const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("balanced");
+  const [trainingPreset, setTrainingPreset] = useState<TrainingPreset>("high_quality");
   const [trainingJob, setTrainingJob] = useState<TrainingJobConfig | null>(null);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJobConfig[]>([]);
   const [trainingRuns, setTrainingRuns] = useState<TrainingRunStatus[]>([]);
@@ -225,6 +270,15 @@ function App() {
 
   useEffect(() => {
     void loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadInitialData({ preserveCharacter: true, silent: true });
+      }
+    }, 5000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -390,19 +444,83 @@ function App() {
     [characters, selectedCharacterId]
   );
 
-  async function loadInitialData() {
+  const appendAppLog = useCallback((level: AppLogLevel, nextMessage: string) => {
+    const trimmed = nextMessage.trim();
+    if (!trimmed) {
+      return;
+    }
+    setAppLogs((current) =>
+      [
+        { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, at: logTime(), level, message: trimmed },
+        ...current
+      ].slice(0, 80)
+    );
+  }, []);
+
+  useEffect(() => {
+    if (message) {
+      appendAppLog("success", message);
+    }
+  }, [appendAppLog, message]);
+
+  useEffect(() => {
+    if (error) {
+      appendAppLog("error", error);
+    }
+  }, [appendAppLog, error]);
+
+  useEffect(() => {
+    if (!runtime) {
+      return;
+    }
+    const runtimeKey = [
+      runtime.comfyui_path_exists ? "comfy-ok" : "comfy-missing",
+      runtime.python_version,
+      runtime.amd_driver_version ?? "no-amd-driver",
+      runtime.warnings.join("|")
+    ].join(":");
+    if (runtimeKey === lastRuntimeLogKey.current) {
+      return;
+    }
+    lastRuntimeLogKey.current = runtimeKey;
+    appendAppLog(
+      runtime.comfyui_path_exists ? "success" : "warning",
+      `Runtime checked: Python ${runtime.python_version}, ${runtime.gpu_names.length ? runtime.gpu_names.join(", ") : "no GPU reported"}, ComfyUI ${runtime.comfyui_path_exists ? "found" : "missing"}.`
+    );
+    runtime.warnings.forEach((warning) => appendAppLog("warning", warning));
+  }, [appendAppLog, runtime]);
+
+  useEffect(() => {
+    const liveKey = liveMetrics ? `online:${liveMetrics.warnings.join("|")}` : "offline";
+    if (liveKey === lastLiveLogKey.current) {
+      return;
+    }
+    lastLiveLogKey.current = liveKey;
+    if (!liveMetrics) {
+      appendAppLog("warning", "System metrics unavailable.");
+      return;
+    }
+    appendAppLog("info", "System metrics connected.");
+    liveMetrics.warnings.forEach((warning) => appendAppLog("warning", warning));
+  }, [appendAppLog, liveMetrics]);
+
+  async function loadInitialData(options: { preserveCharacter?: boolean; silent?: boolean } = {}) {
     try {
-      setError("");
-      const [runtimeStatus, profiles, jobs, runs] = await Promise.all([
+      if (!options.silent) {
+        setError("");
+      }
+      const [runtimeStatus, profiles, jobs, runs, settings] = await Promise.all([
         api.runtime(),
         api.characters(),
         api.trainingJobs(),
-        api.trainingRuns()
+        api.trainingRuns(),
+        api.generationSettings()
       ]);
       setRuntime(runtimeStatus);
       setCharacters(profiles);
       setTrainingJobs(jobs);
       setTrainingRuns(runs);
+      setGenerationSettings(settings);
       const activeRun = [...runs].reverse().find((run) => ["queued", "running"].includes(run.status)) ?? runs[runs.length - 1] ?? null;
       setTrainingRun(activeRun);
       setIsTrainingRunning(Boolean(activeRun && ["queued", "running"].includes(activeRun.status)));
@@ -415,12 +533,17 @@ function App() {
         setLoraName(latestPendingJob.lora_name);
         setAcceptedImageCount(latestPendingJob.accepted_image_count);
       }
-      if (profiles[0]) {
+      if (profiles[0] && !options.preserveCharacter) {
         setSelectedCharacterId(profiles[0].id);
         setEditingCharacter(profiles[0]);
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load studio data.");
+      const loadError = caught instanceof Error ? caught.message : "Unable to load studio data.";
+      if (options.silent) {
+        appendAppLog("warning", `Auto-refresh failed: ${loadError}`);
+      } else {
+        setError(loadError);
+      }
     }
   }
 
@@ -433,9 +556,9 @@ function App() {
         return [...withoutSaved, saved];
       });
       setSelectedCharacterId(saved.id);
-      setMessage("Character saved.");
+      setMessage("Blueprint saved.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to save character.");
+      setError(caught instanceof Error ? caught.message : "Unable to save blueprint.");
     }
   }
 
@@ -449,8 +572,8 @@ function App() {
     const selectedInfluence = packInfluenceOptions.find((item) => item.id === packInfluence) ?? packInfluenceOptions[1];
     return {
       character_id: selectedCharacter?.id ?? "",
-      mode,
-      quality,
+      mode: inferGenerationModeFromBrief(photoBrief),
+      quality: "ultra" as QualityPreset,
       scene_prompt: [scenePrompt, bodyDetailPrompt].map((part) => part.trim()).filter(Boolean).join(", "),
       extra_negative: extraNegative,
       seed: null,
@@ -463,14 +586,71 @@ function App() {
     try {
       setError("");
       setRecipe(await api.previewGeneration(generationPayload()));
+      setGenerationPreflight(await api.generationPreflight(generationPayload()));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to preview recipe.");
+    }
+  }
+
+  async function checkGenerationReadiness() {
+    try {
+      setError("");
+      setGenerationPreflight(await api.generationPreflight(generationPayload()));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to check generation readiness.");
+    }
+  }
+
+  async function enhancePhotoBrief() {
+    if (!photoBrief.trim()) {
+      setError("Write a brief first.");
+      return;
+    }
+    try {
+      setIsEnhancingPrompt(true);
+      setError("");
+      const enhanced = await api.enhancePrompt({
+        character_id: selectedCharacter?.id ?? "",
+        brief: photoBrief,
+        mode: inferGenerationModeFromBrief(photoBrief)
+      });
+      setMode(inferGenerationModeFromBrief(enhanced.scene_prompt));
+      setQuality("ultra");
+      setPhotoBrief(enhanced.scene_prompt);
+      setScenePrompt(enhanced.scene_prompt);
+      setBodyDetailPrompt(enhanced.body_detail_prompt);
+      setExtraNegative(enhanced.extra_negative);
+      setEnhancedPromptSummary(enhanced.summary);
+      setRecipe(null);
+      setMessage("Brief enhanced locally.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to enhance brief.");
+    } finally {
+      setIsEnhancingPrompt(false);
+    }
+  }
+
+  async function saveGenerationSettings() {
+    try {
+      setError("");
+      const saved = await api.saveGenerationSettings(generationSettings);
+      setGenerationSettings(saved);
+      setGenerationPreflight(await api.generationPreflight(generationPayload()));
+      setMessage("Generation settings saved.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save generation settings.");
     }
   }
 
   async function queueGeneration() {
     try {
       setError("");
+      const preflight = await api.generationPreflight(generationPayload());
+      setGenerationPreflight(preflight);
+      if (!preflight.ready) {
+        setError("Generation needs attention. Check the readiness list.");
+        return;
+      }
       const result = await api.queueGeneration(generationPayload());
       setRecipe(result.recipe);
       setGenerationJobs((current) =>
@@ -483,9 +663,9 @@ function App() {
           recipe: result.recipe
         })
       );
-      setMessage(`Queued still photo job ${result.prompt_id}.`);
+      setMessage(`Generation queued: ${result.prompt_id}.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to queue generation.");
+      setError(caught instanceof Error ? caught.message : "Unable to start generation.");
     }
   }
 
@@ -549,9 +729,9 @@ function App() {
       setPrepReport(null);
       const job = await api.startDatasetPrepJob({
         source_folder: prepSourceFolder,
-        output_folder: prepOutputFolder.trim() ? prepOutputFolder : null,
+        output_folder: null,
         target: prepTarget,
-        recursive: prepRecursive,
+        recursive: true,
         scan_mode: "local",
         use_ai: false,
         ai_max_images: 0,
@@ -562,6 +742,13 @@ function App() {
       setError(caught instanceof Error ? caught.message : "Unable to prep dataset crops.");
       setIsPreparingDataset(false);
     }
+  }
+
+  function changePrepTarget(nextTarget: DatasetPrepTarget) {
+    const nextDatasetType = datasetTypeForPrepTarget(nextTarget);
+    setPrepTarget(nextTarget);
+    setDatasetType(nextDatasetType);
+    setLoraName(packNameFromDataset(datasetName, nextDatasetType));
   }
 
   async function cancelDatasetPrep() {
@@ -590,7 +777,7 @@ function App() {
       }
       setDatasetPath(trainingFolder);
       setAcceptedImageCount(counted.image_count);
-      const preset = trainingPresetSettings(trainingPreset);
+      const preset = trainingPresetSettings("high_quality");
       const packName = (loraName || packNameFromDataset(datasetName, datasetType)).trim();
       const job = await api.createTrainingConfig({
         request: {
@@ -630,10 +817,10 @@ function App() {
         pack_name: datasetName,
         source_folder: sourceFolder,
         dataset_type: datasetType,
-        target: "chest_detail",
+        target: prepTarget,
         recursive: true,
         scan_mode: "local",
-        preset: trainingPreset,
+        preset: "high_quality",
         base_model_path: baseModelPath,
         output_dir: outputDir
       });
@@ -729,7 +916,9 @@ function App() {
           <LiidarLogo />
           <div>
             <strong>Liidar</strong>
+            <span>Body sculpture studio</span>
           </div>
+          <RuntimeBadge runtime={runtime} />
         </div>
         <nav className="tab-list" aria-label="Studio sections">
           {tabs.map((tab) => {
@@ -750,23 +939,20 @@ function App() {
           })}
         </nav>
         <SystemMonitor metrics={liveMetrics} />
+        <AppLogPanel logs={appLogs} onClear={() => setAppLogs([])} />
       </aside>
 
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p>Local generation</p>
             <h1>{tabs.find((tab) => tab.id === activeTab)?.label}</h1>
+            <p>{tabSubtitle(activeTab)}</p>
           </div>
-          <button type="button" className="icon-button" onClick={loadInitialData} aria-label="Refresh studio data">
-            <RefreshCcw aria-hidden="true" />
-          </button>
         </header>
 
         {error ? <div className="notice error">{error}</div> : null}
         {message ? <div className="notice success">{message}</div> : null}
 
-        {activeTab === "runtime" ? <RuntimePanel runtime={runtime} /> : null}
         {activeTab === "characters" ? (
           <CharactersPanel
             characters={characters}
@@ -787,6 +973,7 @@ function App() {
             selectedCharacterId={selectedCharacter?.id ?? ""}
             mode={mode}
             quality={quality}
+            photoBrief={photoBrief}
             scenePrompt={scenePrompt}
             bodyDetailPrompt={bodyDetailPrompt}
             selectedGlobalLora={selectedGlobalLora}
@@ -795,14 +982,23 @@ function App() {
             recipe={recipe}
             generationJobs={generationJobs}
             trainingJobs={trainingJobs}
+            settings={generationSettings}
+            preflight={generationPreflight}
+            isEnhancingPrompt={isEnhancingPrompt}
+            enhancedPromptSummary={enhancedPromptSummary}
             onCharacterChange={setSelectedCharacterId}
             onModeChange={setMode}
             onQualityChange={setQuality}
+            onPhotoBriefChange={setPhotoBrief}
             onScenePromptChange={setScenePrompt}
             onBodyDetailPromptChange={setBodyDetailPrompt}
             onSelectedGlobalLoraChange={setSelectedGlobalLora}
             onPackInfluenceChange={setPackInfluence}
             onExtraNegativeChange={setExtraNegative}
+            onSettingsChange={setGenerationSettings}
+            onSaveSettings={() => void saveGenerationSettings()}
+            onCheckReadiness={() => void checkGenerationReadiness()}
+            onEnhanceBrief={() => void enhancePhotoBrief()}
             onPreview={previewRecipe}
             onQueue={queueGeneration}
           />
@@ -830,9 +1026,13 @@ function App() {
             isTrainingRunning={isTrainingRunning}
             learningJob={learningJob}
             isLearning={isLearning}
+            prepSourceFolder={prepSourceFolder}
+            prepTarget={prepTarget}
+            prepReport={prepReport}
+            prepJob={prepJob}
+            isPreparing={isPreparingDataset}
             onDatasetNameChange={setDatasetName}
             onSourceFolderChange={setSourceFolder}
-            onDatasetTypeChange={setDatasetType}
             onFacePolicyChange={setFacePolicy}
             onTrainingPresetChange={setTrainingPreset}
             onDatasetPathChange={setDatasetPath}
@@ -850,25 +1050,11 @@ function App() {
             onCancelTraining={() => void cancelTrainingRun()}
             onClearPendingJobs={() => void clearPendingTrainingJobs()}
             onCheckStatus={checkTrainerStatus}
-          />
-        ) : null}
-        {activeTab === "prep" ? (
-          <DatasetPrepPanel
-            sourceFolder={prepSourceFolder}
-            outputFolder={prepOutputFolder}
-            target={prepTarget}
-            recursive={prepRecursive}
-            report={prepReport}
-            job={prepJob}
-            isPreparing={isPreparingDataset}
-            onSourceFolderChange={setPrepSourceFolder}
-            onOutputFolderChange={setPrepOutputFolder}
-            onTargetChange={setPrepTarget}
-            onRecursiveChange={setPrepRecursive}
-            onSelectSource={() => void selectPrepFolder("source")}
-            onSelectOutput={() => void selectPrepFolder("output")}
-            onRun={() => void runDatasetPrep()}
-            onCancel={() => void cancelDatasetPrep()}
+            onPrepSourceFolderChange={setPrepSourceFolder}
+            onPrepTargetChange={changePrepTarget}
+            onSelectPrepSource={() => void selectPrepFolder("source")}
+            onRunPrep={() => void runDatasetPrep()}
+            onCancelPrep={() => void cancelDatasetPrep()}
           />
         ) : null}
       </main>
@@ -876,49 +1062,85 @@ function App() {
   );
 }
 
-function RuntimePanel({ runtime }: { runtime: RuntimeStatus | null }) {
+function RuntimeBadge({ runtime }: { runtime: RuntimeStatus | null }) {
+  const ready = Boolean(runtime?.comfyui_path_exists);
+  const statusText = runtime ? (ready ? "Ready" : "Needs setup") : "Checking";
+  const detailText = runtime?.amd_driver_version ? "AMD detected" : runtime?.gpu_names[0] ?? "Runtime";
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>Runtime status</h2>
-        <p>Local hardware and ComfyUI readiness.</p>
+    <div className={ready ? "runtime-badge ready" : "runtime-badge warning"} title={runtime ? `Python ${runtime.python_version} - ${runtime.gpu_names.join(", ") || "No GPU reported"}` : "Checking runtime"}>
+      {ready ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+      <div>
+        <span>Runtime</span>
+        <strong>{statusText}</strong>
+        <small>{detailText}</small>
       </div>
-      <div className="status-grid">
-        <Metric label="OS" value={runtime?.os_name ?? "Loading"} />
-        <Metric label="Python" value={runtime?.python_version ?? "Loading"} />
-        <Metric label="CPU" value={runtime?.cpu_name ?? "Loading"} />
-        <Metric label="RAM" value={runtime ? `${runtime.total_ram_gb} GB` : "Loading"} />
-        <Metric label="GPU" value={runtime?.gpu_names.join(", ") || "No GPU reported"} />
-        <Metric label="AMD driver" value={runtime?.amd_driver_version ?? "Not detected"} />
+    </div>
+  );
+}
+
+function AppLogPanel({ logs, onClear }: { logs: AppLogEntry[]; onClear: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const logText = logs.map((entry) => `[${entry.at}] ${entry.level.toUpperCase()}: ${entry.message}`).join("\n");
+
+  async function copyLogs() {
+    if (!logText) {
+      return;
+    }
+    await navigator.clipboard.writeText(logText);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <section className="sidebar-log-panel" aria-label="Live app logs">
+      <div className="monitor-heading">
+        <span>Activity</span>
+        <strong>{logs.length ? `${logs.length} events` : "Clear"}</strong>
       </div>
-      <div className={`inline-status ${runtime?.comfyui_path_exists ? "ok" : "warning"}`}>
-        {runtime?.comfyui_path_exists ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-        <span>ComfyUI path {runtime?.comfyui_path_exists ? "found" : "not found"}</span>
+      <div className="log-actions">
+        <button type="button" onClick={() => void copyLogs()} disabled={!logs.length}>
+          <Copy aria-hidden="true" />
+          {copied ? "Copied" : "Copy all"}
+        </button>
+        <button type="button" onClick={onClear} disabled={!logs.length}>
+          <X aria-hidden="true" />
+          Clear
+        </button>
       </div>
-      {runtime?.warnings.length ? <WarningList warnings={runtime.warnings} /> : null}
+      <div className="live-log-list">
+        {logs.length ? logs.slice(0, 18).map((entry) => (
+          <article key={entry.id} className={`live-log-entry ${entry.level}`}>
+            <div>
+              <span>{entry.at}</span>
+              <strong>{entry.level}</strong>
+            </div>
+            <p>{entry.message}</p>
+          </article>
+        )) : <p className="empty-log">No events yet.</p>}
+      </div>
     </section>
   );
 }
 
 function SystemMonitor({ metrics }: { metrics: SystemLiveMetrics | null }) {
-  const gpuText = metrics?.gpu_percent == null ? "No counter" : `${Math.round(metrics.gpu_percent)}%`;
-  const vramText = metrics?.gpu_memory_used_gb == null ? "Dedicated VRAM unavailable" : `${metrics.gpu_memory_used_gb.toFixed(2)} GB dedicated`;
+  const gpuText = metrics?.gpu_percent == null ? "Unavailable" : `${Math.round(metrics.gpu_percent)}%`;
+  const vramText = metrics?.gpu_memory_used_gb == null ? "VRAM unavailable" : `${metrics.gpu_memory_used_gb.toFixed(2)} GB VRAM`;
   return (
     <section className="sidebar-monitor" aria-label="Live system monitor">
       <div className="monitor-heading">
-        <span>Live system</span>
-        <strong>{metrics ? "Online" : "Loading"}</strong>
+        <span>System</span>
+        <strong>{metrics ? "Live" : "Checking"}</strong>
       </div>
-      <MonitorBar label="CPU" value={metrics?.cpu_percent ?? 0} text={metrics ? `${Math.round(metrics.cpu_percent)}%` : "Loading"} />
+      <MonitorBar label="CPU" value={metrics?.cpu_percent ?? 0} text={metrics ? `${Math.round(metrics.cpu_percent)}%` : "Checking"} />
       <MonitorBar
         label="RAM"
         value={metrics?.ram_percent ?? 0}
-        text={metrics ? `${metrics.ram_used_gb.toFixed(1)} / ${metrics.ram_total_gb.toFixed(1)} GB` : "Loading"}
+        text={metrics ? `${metrics.ram_used_gb.toFixed(1)} / ${metrics.ram_total_gb.toFixed(1)} GB` : "Checking"}
       />
       <MonitorBar label="GPU" value={metrics?.gpu_percent ?? 0} text={gpuText} muted={metrics?.gpu_percent == null} />
       <div className="monitor-meta">
         <span>{vramText}</span>
-        <span>Backend {metrics ? `${Math.round(metrics.process_memory_mb)} MB` : "..."}</span>
+        <span>App memory {metrics ? `${Math.round(metrics.process_memory_mb)} MB` : "Checking"}</span>
       </div>
       {metrics?.warnings[0] ? <p className="monitor-warning">{metrics.warnings[0]}</p> : null}
     </section>
@@ -986,10 +1208,10 @@ function CharactersPanel(props: {
   return (
     <section className="panel split-panel">
       <div className="list-rail">
-        <h2>Characters</h2>
+        <h2>Character blueprints</h2>
         <button type="button" className="secondary-button rail-action" onClick={onNew}>
           <Plus aria-hidden="true" />
-          New character
+          New blueprint
         </button>
         {characters.map((character) => (
           <button
@@ -999,20 +1221,13 @@ function CharactersPanel(props: {
             onClick={() => onSelect(character.id)}
           >
             <strong>{character.display_name}</strong>
-            <span>{labelize(character.age_category)}</span>
           </button>
         ))}
       </div>
       <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
         <label>
-          Display name
+          Blueprint name
           <input value={editingCharacter.display_name} onChange={(event) => update("display_name", event.target.value)} />
-        </label>
-        <label>
-          Age category
-          <select value={editingCharacter.age_category} onChange={(event) => update("age_category", event.target.value as AdultAgeCategory)}>
-            {ageCategories.map((age) => <option key={age} value={age}>{labelize(age)}</option>)}
-          </select>
         </label>
         <ReferencePathModule paths={editingCharacter.reference_images} onChange={updateReferences} />
         {analysisError ? <div className="inline-error">{analysisError}</div> : null}
@@ -1021,11 +1236,11 @@ function CharactersPanel(props: {
         <div className="actions compact-actions">
           <button type="button" className="primary-button" onClick={() => void analyzeReferences()} disabled={!editingCharacter.reference_images.length || isAnalyzing}>
             <Search aria-hidden="true" />
-            {isAnalyzing ? "Analyzing" : "Analyze references"}
+            {isAnalyzing ? "Reading references" : "Build blueprint"}
           </button>
         </div>
         <details className="advanced-fields">
-          <summary>Advanced profile controls</summary>
+          <summary>Manual blueprint fields</summary>
           <div className="form-grid inner-grid">
             <Textarea label="Face summary" value={editingCharacter.face_summary} onChange={(value) => update("face_summary", value)} />
             <Textarea label="Hair" value={editingCharacter.hair} onChange={(value) => update("hair", value)} />
@@ -1040,7 +1255,7 @@ function CharactersPanel(props: {
         </details>
         <button type="submit" className="primary-button">
           <Save aria-hidden="true" />
-          Save character
+          Save blueprint
         </button>
       </form>
     </section>
@@ -1052,6 +1267,7 @@ function GeneratePanel(props: {
   selectedCharacterId: string;
   mode: GenerationMode;
   quality: QualityPreset;
+  photoBrief: string;
   scenePrompt: string;
   bodyDetailPrompt: string;
   selectedGlobalLora: string;
@@ -1060,14 +1276,23 @@ function GeneratePanel(props: {
   recipe: PromptRecipe | null;
   generationJobs: TrackedGenerationJob[];
   trainingJobs: TrainingJobConfig[];
+  settings: GenerationSettings;
+  preflight: GenerationPreflightResponse | null;
+  isEnhancingPrompt: boolean;
+  enhancedPromptSummary: string;
   onCharacterChange: (id: string) => void;
   onModeChange: (mode: GenerationMode) => void;
   onQualityChange: (quality: QualityPreset) => void;
+  onPhotoBriefChange: (value: string) => void;
   onScenePromptChange: (value: string) => void;
   onBodyDetailPromptChange: (value: string) => void;
   onSelectedGlobalLoraChange: (value: string) => void;
   onPackInfluenceChange: (value: PackInfluence) => void;
   onExtraNegativeChange: (value: string) => void;
+  onSettingsChange: (settings: GenerationSettings) => void;
+  onSaveSettings: () => void;
+  onCheckReadiness: () => void;
+  onEnhanceBrief: () => void;
   onPreview: () => void;
   onQueue: () => void;
 }) {
@@ -1076,104 +1301,134 @@ function GeneratePanel(props: {
 
   return (
     <section className="panel generate-workflow-panel">
-      <div className="panel-heading">
-        <h2>Generate believable still photos</h2>
-        <p>Pick the character, choose the trained pack influence, describe the photo, then queue it locally.</p>
-      </div>
-
       <div className="generate-control-grid">
         <section className="generate-card">
           <div className="generate-card-heading">
-            <strong>Character</strong>
-            <span>Face and identity base</span>
+            <strong>Identity</strong>
+            <span>Blueprint base</span>
           </div>
           <label>
-            Character
+            Character blueprint
             <select value={props.selectedCharacterId} onChange={(event) => props.onCharacterChange(event.target.value)}>
               {props.characters.map((character) => <option key={character.id} value={character.id}>{character.display_name}</option>)}
             </select>
           </label>
-          <div className="generate-mini-grid">
-            <label>
-              Framing
-              <select value={props.mode} onChange={(event) => props.onModeChange(event.target.value as GenerationMode)}>
-                {generationModes.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-              </select>
-            </label>
-            <label>
-              Quality
-              <select value={props.quality} onChange={(event) => props.onQualityChange(event.target.value as QualityPreset)}>
-                {qualityPresets.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
-              </select>
-            </label>
+          <div className="auto-generation-note">
+            <strong>Auto sculpt</strong>
+            <span>Highest quality. Framing follows the brief.</span>
           </div>
-        </section>
-
-        <section className="generate-card">
-          <div className="generate-card-heading">
-            <strong>Trained pack</strong>
-            <span>{activePacks.length ? `${activePacks.length} active pack${activePacks.length === 1 ? "" : "s"} available` : "No active trained pack yet"}</span>
-          </div>
-          <label>
-            Body detail pack
-            <select value={props.selectedGlobalLora} onChange={(event) => props.onSelectedGlobalLoraChange(event.target.value)}>
-              <option value="all">Use all active packs automatically</option>
-              <option value="none">No trained body pack</option>
-              {activePacks.map((job) => (
-                <option key={job.job_id} value={job.completed_lora_path ?? ""}>
-                  {job.lora_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="pack-strength-row" role="radiogroup" aria-label="Pack influence">
-            {packInfluenceOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={props.packInfluence === option.id}
-                className={props.packInfluence === option.id ? "strength-button active" : "strength-button"}
-                onClick={() => props.onPackInfluenceChange(option.id)}
-                title={option.description}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <small>Strength {selectedInfluence.strength.toFixed(2)}. Use Strong only when the pack should dominate the body detail.</small>
         </section>
       </div>
 
       <section className="generate-scene-card">
         <div className="generate-card-heading">
-          <strong>Photo request</strong>
-          <span>Write the scene separately from the trained body-detail request.</span>
+          <strong>Local model</strong>
+          <span>ComfyUI target</span>
         </div>
-        <div className="form-grid two-column">
-          <Textarea label="Scene prompt" value={props.scenePrompt} onChange={props.onScenePromptChange} />
-          <Textarea label="Body detail request" value={props.bodyDetailPrompt} onChange={props.onBodyDetailPromptChange} />
+        <div className="checkpoint-row">
+          <label>
+            Checkpoint
+            <input
+              value={props.settings.checkpoint_name}
+              onChange={(event) => props.onSettingsChange({ ...props.settings, checkpoint_name: event.target.value })}
+              placeholder="sdxl_base_1.0.safetensors"
+            />
+          </label>
+          <button type="button" className="secondary-button" onClick={props.onSaveSettings}>
+            <Save aria-hidden="true" />
+            Save
+          </button>
+          <button type="button" className="secondary-button" onClick={props.onCheckReadiness}>
+            <RefreshCcw aria-hidden="true" />
+            Check
+          </button>
+        </div>
+        <GenerationPreflightPanel preflight={props.preflight} />
+      </section>
+
+      <section className="generate-scene-card">
+        <div className="generate-card-heading">
+          <strong>Compose image</strong>
+          <span>One brief, locally expanded</span>
+        </div>
+        <div className="brief-composer">
+          <Textarea
+            label="Brief"
+            value={props.photoBrief}
+            onChange={props.onPhotoBriefChange}
+          />
+          <div className="actions compact-actions">
+            <button type="button" className="secondary-button" onClick={props.onEnhanceBrief} disabled={props.isEnhancingPrompt || !props.photoBrief.trim()}>
+              <RefreshCcw aria-hidden="true" />
+              {props.isEnhancingPrompt ? "Composing" : "Enhance brief"}
+            </button>
+            <button type="button" className="secondary-button" onClick={props.onPreview}>
+              <Search aria-hidden="true" />
+              Preview
+            </button>
+          </div>
+          {props.enhancedPromptSummary ? <p className="prompt-status-line">{props.enhancedPromptSummary}</p> : null}
         </div>
         <details className="generate-advanced">
-          <summary>Extra negative prompt</summary>
+          <summary>Generated prompt details</summary>
+          <section className="advanced-pack-routing">
+            <div className="generate-card-heading">
+              <strong>Pack routing</strong>
+              <span>{activePacks.length ? `${activePacks.length} active` : "None active"}</span>
+            </div>
+            <label>
+              Routing mode
+              <select value={props.selectedGlobalLora} onChange={(event) => props.onSelectedGlobalLoraChange(event.target.value)}>
+                <option value="all">Auto-select relevant packs</option>
+                <option value="none">No trained pack</option>
+                {activePacks.map((job) => (
+                  <option key={job.job_id} value={job.completed_lora_path ?? ""}>
+                    {job.lora_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="pack-strength-row" role="radiogroup" aria-label="Pack influence">
+              {packInfluenceOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={props.packInfluence === option.id}
+                  className={props.packInfluence === option.id ? "strength-button active" : "strength-button"}
+                  onClick={() => props.onPackInfluenceChange(option.id)}
+                  title={option.description}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <small>Strength {selectedInfluence.strength.toFixed(2)}</small>
+          </section>
+          <div className="form-grid two-column">
+            <Textarea label="Scene prompt" value={props.scenePrompt} onChange={props.onScenePromptChange} />
+            <Textarea label="Body detail prompt" value={props.bodyDetailPrompt} onChange={props.onBodyDetailPromptChange} />
+          </div>
           <Textarea label="Extra negative" value={props.extraNegative} onChange={props.onExtraNegativeChange} />
         </details>
       </section>
 
       <div className="actions">
-        <button type="button" className="secondary-button" onClick={props.onPreview}>
-          <Search aria-hidden="true" />
-          Preview recipe
-        </button>
-        <button type="button" className="primary-button" onClick={props.onQueue}>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={props.onQueue}
+          disabled={props.preflight ? !props.preflight.ready : false}
+          title={props.preflight && !props.preflight.ready ? "Check readiness before generating." : "Send to ComfyUI"}
+        >
           <Play aria-hidden="true" />
-          Queue generation
+          Generate
         </button>
       </div>
       {props.recipe ? (
         <div className="recipe-box">
           <div className="recipe-summary-header">
-            <h3>Recipe preview</h3>
+            <h3>Generation recipe</h3>
             <span>{props.recipe.width} x {props.recipe.height} · {props.recipe.steps} steps · CFG {props.recipe.cfg}</span>
           </div>
           <dl className="recipe-summary-grid">
@@ -1197,6 +1452,31 @@ function GeneratePanel(props: {
       ) : null}
       <GenerationJobsPanel jobs={props.generationJobs} />
     </section>
+  );
+}
+
+function GenerationPreflightPanel({ preflight }: { preflight: GenerationPreflightResponse | null }) {
+  if (!preflight) {
+    return <p className="empty-analysis-note">Preview or check once before generating.</p>;
+  }
+  return (
+    <div className="preflight-panel">
+      <div className={`inline-status ${preflight.ready ? "ok" : "warning"}`}>
+        {preflight.ready ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+        <span>{preflight.ready ? "Ready to generate" : "Needs attention"}</span>
+      </div>
+      <div className="preflight-list">
+        {preflight.items.map((item) => (
+          <div className={item.ok ? "preflight-item ok" : "preflight-item warning"} key={item.id}>
+            {item.ok ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+            <div>
+              <strong>{item.label}</strong>
+              <span>{item.detail}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1264,141 +1544,6 @@ function GenerationJobsPanel({ jobs }: { jobs: TrackedGenerationJob[] }) {
   );
 }
 
-function DatasetPrepPanel(props: {
-  sourceFolder: string;
-  outputFolder: string;
-  target: DatasetPrepTarget;
-  recursive: boolean;
-  report: DatasetPrepResponse | null;
-  job: DatasetPrepJobStatus | null;
-  isPreparing: boolean;
-  onSourceFolderChange: (value: string) => void;
-  onOutputFolderChange: (value: string) => void;
-  onTargetChange: (value: DatasetPrepTarget) => void;
-  onRecursiveChange: (value: boolean) => void;
-  onSelectSource: () => void;
-  onSelectOutput: () => void;
-  onRun: () => void;
-  onCancel: () => void;
-}) {
-  const canRun = Boolean(props.sourceFolder.trim()) && !props.isPreparing;
-  const progressTotal = props.job?.total_count ?? 0;
-  const progressProcessed = props.job?.processed_count ?? 0;
-  const progressPercent = progressTotal > 0 ? Math.round((progressProcessed / progressTotal) * 100) : props.isPreparing ? 4 : 0;
-  const isCancelable = Boolean(props.job && ["queued", "running", "cancelling"].includes(props.job.status));
-  const aiModeText = "Local AI scan is active. It uses the local detector and writes only crops with a usable detected target.";
-  return (
-    <section className="training-layout dataset-prep-layout">
-      <div className="panel training-overview">
-        <div className="panel-heading">
-          <h2>Dataset prep</h2>
-          <p>Crop raw folders into cleaner training inputs before creating a global pack.</p>
-        </div>
-        <div className="prep-note">
-          <strong>Detection mode</strong>
-          <span>{aiModeText}</span>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-heading">
-          <h2>Crop setup</h2>
-          <p>Output folder is optional. If blank, crops stay inside this Liidar workspace.</p>
-        </div>
-        <div className="form-grid two-column">
-          <div className="field-block">
-            <label htmlFor="prep-source-folder">Source folder</label>
-            <div className="folder-picker-row">
-              <input id="prep-source-folder" value={props.sourceFolder} onChange={(event) => props.onSourceFolderChange(event.target.value)} placeholder="Select raw image folder" />
-              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSource}>
-                <FolderOpen aria-hidden="true" />
-                Select folder
-              </button>
-            </div>
-          </div>
-          <div className="field-block">
-            <label htmlFor="prep-output-folder">Output folder</label>
-            <div className="folder-picker-row">
-              <input id="prep-output-folder" value={props.outputFolder} onChange={(event) => props.onOutputFolderChange(event.target.value)} placeholder="Workspace default" />
-              <button type="button" className="secondary-button inline-button" onClick={props.onSelectOutput}>
-                <FolderOpen aria-hidden="true" />
-                Select folder
-              </button>
-            </div>
-          </div>
-          <label>
-            Crop target
-            <select value={props.target} onChange={(event) => props.onTargetChange(event.target.value as DatasetPrepTarget)}>
-              {prepTargets.map((target) => <option key={target} value={target}>{prepTargetLabel(target)}</option>)}
-            </select>
-          </label>
-          <label className="check-row">
-            <input type="checkbox" checked={props.recursive} onChange={(event) => props.onRecursiveChange(event.target.checked)} />
-            Include subfolders
-          </label>
-        </div>
-        <section className="api-key-panel">
-          <div className="panel-heading">
-            <h3>Detection mode</h3>
-            <p>Dataset prep always uses the local scanner on this PC.</p>
-          </div>
-          <div className="inline-status ok">
-            <CheckCircle2 aria-hidden="true" />
-            <span>Local AI scanning runs on this PC.</span>
-          </div>
-        </section>
-        <div className="actions compact-actions">
-          <button type="button" className="primary-button" onClick={props.onRun} disabled={!canRun}>
-            <Scissors aria-hidden="true" />
-            {props.isPreparing ? "Preparing crops" : "Create crop folder"}
-          </button>
-          {isCancelable ? (
-            <button type="button" className="secondary-button danger-button" onClick={props.onCancel} disabled={props.job?.status === "cancelling"}>
-              <X aria-hidden="true" />
-              {props.job?.status === "cancelling" ? "Cancelling" : "Cancel"}
-            </button>
-          ) : null}
-        </div>
-        {props.job ? (
-          <section className="prep-progress-panel">
-            <div className="prep-progress-header">
-              <strong>{labelize(props.job.status)}</strong>
-              <span>{progressProcessed} / {progressTotal || "?"} images</span>
-            </div>
-            <div className="progress-track" aria-label="Dataset prep progress" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
-              <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} />
-            </div>
-            <div className="prep-progress-meta">
-              <span>
-                Local AI scan: {props.job.cropped_count} crops saved, {props.job.skipped_count} skipped
-              </span>
-              <span>{props.job.fallback_count} fallback crop{props.job.fallback_count === 1 ? "" : "s"}</span>
-              {props.job.active_file ? <span>Current: {props.job.active_file}</span> : null}
-              {props.job.error ? <span className="error-text">{props.job.error}</span> : null}
-            </div>
-          </section>
-        ) : null}
-      </div>
-
-      {props.report ? (
-        <div className="panel">
-          <div className="panel-heading">
-            <h2>Prep result</h2>
-            <p>{props.report.output_folder}</p>
-          </div>
-          <div className="count-grid">
-            <Metric label="Processed" value={props.report.processed_count} />
-            <Metric label="Cropped" value={props.report.cropped_count} />
-            <Metric label="Skipped" value={props.report.skipped_count} />
-            <Metric label="Output folder" value={props.report.output_folder} />
-          </div>
-          {props.report.warnings.length ? <WarningList warnings={props.report.warnings} /> : null}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function TrainingPanel(props: {
   datasetName: string;
   sourceFolder: string;
@@ -1421,9 +1566,13 @@ function TrainingPanel(props: {
   isTrainingRunning: boolean;
   learningJob: GlobalLearningResponse | null;
   isLearning: boolean;
+  prepSourceFolder: string;
+  prepTarget: DatasetPrepTarget;
+  prepReport: DatasetPrepResponse | null;
+  prepJob: DatasetPrepJobStatus | null;
+  isPreparing: boolean;
   onDatasetNameChange: (value: string) => void;
   onSourceFolderChange: (value: string) => void;
-  onDatasetTypeChange: (value: DatasetType) => void;
   onFacePolicyChange: (value: FacePolicy) => void;
   onTrainingPresetChange: (value: TrainingPreset) => void;
   onDatasetPathChange: (value: string) => void;
@@ -1441,6 +1590,11 @@ function TrainingPanel(props: {
   onCancelTraining: () => void;
   onClearPendingJobs: () => void;
   onCheckStatus: () => void;
+  onPrepSourceFolderChange: (value: string) => void;
+  onPrepTargetChange: (value: DatasetPrepTarget) => void;
+  onSelectPrepSource: () => void;
+  onRunPrep: () => void;
+  onCancelPrep: () => void;
 }) {
   const trainingFolder = props.datasetPath || props.sourceFolder;
   const hasTrainingFolder = Boolean(trainingFolder.trim());
@@ -1453,28 +1607,94 @@ function TrainingPanel(props: {
   const setupSaved = Boolean(props.trainingJob && props.trainingJob.lora_name === globalPackName);
   const primaryActionLabel = runIsActive ? "Training running" : setupSaved ? "Start training" : "Save training setup";
   const primaryAction = setupSaved ? props.onStartTraining : props.onCreateConfig;
+  const prepProgressTotal = props.prepJob?.total_count ?? 0;
+  const prepProgressProcessed = props.prepJob?.processed_count ?? 0;
+  const prepProgressPercent = prepProgressTotal > 0 ? Math.round((prepProgressProcessed / prepProgressTotal) * 100) : props.isPreparing ? 4 : 0;
+  const prepIsCancelable = Boolean(props.prepJob && ["queued", "running", "cancelling"].includes(props.prepJob.status));
+  const canRunPrep = Boolean(props.prepSourceFolder.trim()) && !props.isPreparing;
   const setupStatus = runIsActive
     ? "Training is running"
     : setupSaved
       ? `${globalPackName} is ready to train`
-      : "Save the setup before training";
+      : hasTrainingFolder
+        ? "Ready to save"
+        : "Prepare references first";
 
   return (
     <section className="training-layout global-training">
-      <div className="panel training-simple-panel">
+      <div className="panel training-simple-panel training-step-panel">
         <div className="panel-heading">
-          <h2>Train a global pack</h2>
-          <p>Select prepared crops, name what this pack teaches, then let the app handle the trainer.</p>
+          <h2>Train sculpture pack</h2>
+          <p>Prepare references, name the pack, then train at the best local preset.</p>
         </div>
 
-        <div className="training-step-strip compact">
-          <div className={hasTrainingFolder ? "active" : ""}><strong>1</strong><span>Setup</span></div>
-          <div className={setupSaved || runIsActive ? "active" : ""}><strong>2</strong><span>Train</span></div>
-          <div className={latestCompletedPack ? "active" : ""}><strong>3</strong><span>Active pack</span></div>
-        </div>
+        <section className="training-step-card">
+          <div className="training-step-header">
+            <span className="step-number">1</span>
+            <div>
+              <h3>Prepare references</h3>
+              <p>Choose the raw folder and the body focus this pack should learn.</p>
+            </div>
+          </div>
+          <div className="folder-picker-row">
+            <input value={props.prepSourceFolder} onChange={(event) => props.onPrepSourceFolderChange(event.target.value)} placeholder="Select raw image folder" />
+            <button type="button" className="secondary-button inline-button" onClick={props.onSelectPrepSource}>
+              <FolderOpen aria-hidden="true" />
+              Select folder
+            </button>
+          </div>
+          <label>
+            Body focus
+            <select value={props.prepTarget} onChange={(event) => props.onPrepTargetChange(event.target.value as DatasetPrepTarget)}>
+              {prepTargets.map((target) => <option key={target} value={target}>{prepTargetLabel(target)}</option>)}
+            </select>
+            <small className="field-hint">{prepTargetHint(props.prepTarget)}</small>
+          </label>
+          <div className="actions compact-actions">
+            <button type="button" className="primary-button" onClick={props.onRunPrep} disabled={!canRunPrep}>
+              <Scissors aria-hidden="true" />
+              {props.isPreparing ? "Preparing" : "Prepare references"}
+            </button>
+            {prepIsCancelable ? (
+              <button type="button" className="secondary-button danger-button" onClick={props.onCancelPrep} disabled={props.prepJob?.status === "cancelling"}>
+                <X aria-hidden="true" />
+                {props.prepJob?.status === "cancelling" ? "Cancelling" : "Cancel"}
+              </button>
+            ) : null}
+          </div>
+          {props.prepJob ? (
+            <section className="prep-progress-panel">
+              <div className="prep-progress-header">
+                <strong>{labelize(props.prepJob.status)}</strong>
+                <span>{prepProgressProcessed} / {prepProgressTotal || "?"} images</span>
+              </div>
+              <div className="progress-track" aria-label="Dataset prep progress" role="progressbar" aria-valuenow={prepProgressPercent} aria-valuemin={0} aria-valuemax={100}>
+                <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, prepProgressPercent))}%` }} />
+              </div>
+              <div className="prep-progress-meta">
+                <span>{props.prepJob.cropped_count} crops saved, {props.prepJob.skipped_count} skipped</span>
+                {props.prepJob.error ? <span className="error-text">{props.prepJob.error}</span> : null}
+              </div>
+            </section>
+          ) : null}
+          {props.prepReport ? (
+            <div className="training-library-strip">
+              <span>{props.prepReport.cropped_count} crops ready</span>
+              <span>{props.prepReport.output_folder}</span>
+            </div>
+          ) : null}
+        </section>
 
-        <div className="training-simple-grid">
-          <div className="training-field-stack">
+        <section className="training-step-card">
+          <div className="training-step-header">
+            <span className="step-number">2</span>
+            <div>
+              <h3>Name the sculpture</h3>
+              <p>Generation will auto-select this pack when the brief needs it.</p>
+            </div>
+          </div>
+
+          <div className="pack-setup-card">
             <label>
               Pack name
               <input
@@ -1487,62 +1707,43 @@ function TrainingPanel(props: {
                 }}
               />
             </label>
-            <label>
-              What this teaches
-              <select
-                value={props.datasetType}
-                disabled={runIsActive}
-                onChange={(event) => props.onDatasetTypeChange(event.target.value as DatasetType)}
-              >
-                {datasetTypes.map((item) => <option key={item} value={item}>{datasetTypeLabel(item)}</option>)}
-              </select>
-            </label>
-          </div>
-
-          <div className="training-folder-card">
-            <span>Prepared crop folder</span>
-            <div className="folder-picker-row">
-              <input
-                id="training-folder"
-                value={trainingFolder}
-                disabled={runIsActive}
-                onChange={(event) => {
-                  props.onSourceFolderChange(event.target.value);
-                  props.onDatasetPathChange(event.target.value);
-                }}
-                placeholder="Select a crop folder created in Dataset prep"
-              />
-              <button type="button" className="secondary-button inline-button" onClick={props.onSelectSourceFolder} disabled={runIsActive}>
-                <FolderOpen aria-hidden="true" />
-                Select folder
-              </button>
+            <div className="field-block">
+              <label htmlFor="training-folder">Export cropped images folder</label>
+              <div className="folder-picker-row">
+                <input
+                  id="training-folder"
+                  value={trainingFolder}
+                  disabled={runIsActive}
+                  onChange={(event) => {
+                    props.onSourceFolderChange(event.target.value);
+                    props.onDatasetPathChange(event.target.value);
+                  }}
+                  placeholder="Cropped images folder appears after step 1"
+                />
+                <button type="button" className="secondary-button inline-button" onClick={props.onSelectSourceFolder} disabled={runIsActive}>
+                  <FolderOpen aria-hidden="true" />
+                  Select folder
+                </button>
+              </div>
+              <small className="field-hint">{props.acceptedImageCount ? `${props.acceptedImageCount} exported crops ready` : "Auto-filled after references are prepared."}</small>
             </div>
-            <small>{props.acceptedImageCount ? `${props.acceptedImageCount} images ready` : "Image count is checked when setup is saved."}</small>
           </div>
-        </div>
+        </section>
 
-        <div className="preset-grid compact-presets" role="radiogroup" aria-label="Training quality">
-          {trainingPresets.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              role="radio"
-              aria-checked={props.trainingPreset === preset.id}
-              className={props.trainingPreset === preset.id ? "preset-card active" : "preset-card"}
-              disabled={runIsActive}
-              onClick={() => props.onTrainingPresetChange(preset.id)}
-            >
-              <strong>{preset.label}</strong>
-              <span>{preset.description}</span>
-            </button>
-          ))}
-        </div>
+        <section className="training-step-card training-final-step">
+          <div className="training-step-header">
+            <span className="step-number">3</span>
+            <div>
+              <h3>Train locally</h3>
+              <p>Uses the highest quality preset automatically.</p>
+            </div>
+          </div>
 
         <div className="training-action-card">
           <div>
             <span>Status</span>
             <strong>{setupStatus}</strong>
-            <small>Output pack: {globalPackName}.safetensors</small>
+            <small>{setupSaved ? "Ready to start local training." : "Save once the cropped images folder is ready."}</small>
           </div>
           <div className="actions compact-actions">
             <button
@@ -1562,16 +1763,18 @@ function TrainingPanel(props: {
             ) : null}
           </div>
         </div>
+        </section>
 
         {activeRun ? <TrainingRunPanel run={activeRun} /> : null}
 
-        <div className="training-library-strip">
-          <span>{completedGlobalPacks.length} active pack{completedGlobalPacks.length === 1 ? "" : "s"}</span>
-          <span>{pendingGlobalJobs.length} saved setup{pendingGlobalJobs.length === 1 ? "" : "s"}</span>
-          <span>{latestCompletedPack ? `Latest: ${latestCompletedPack.lora_name}` : "No finished pack yet"}</span>
-        </div>
+        {completedGlobalPacks.length || latestCompletedPack ? (
+          <div className="training-library-strip">
+            <span>{completedGlobalPacks.length} active pack{completedGlobalPacks.length === 1 ? "" : "s"}</span>
+            <span>{latestCompletedPack ? `Latest: ${latestCompletedPack.lora_name}` : "No finished pack yet"}</span>
+          </div>
+        ) : null}
 
-        <details className="training-diagnostics">
+        <details className="training-diagnostics hidden">
           <summary>Queue tools and technical details</summary>
           <div className="count-grid">
             <Metric label="Ready packs" value={completedGlobalPacks.length} />
@@ -1674,7 +1877,7 @@ function TrainingRunPanel({ run }: { run: TrainingRunStatus }) {
         </div>
       ) : null}
       {run.error ? <div className="inline-error">{run.error}</div> : null}
-      <details className="run-path-details">
+      <details className="run-path-details hidden">
         <summary>Technical run details</summary>
         <div className="training-run-grid">
           <Metric label="Exit code" value={run.exit_code ?? "Running"} />

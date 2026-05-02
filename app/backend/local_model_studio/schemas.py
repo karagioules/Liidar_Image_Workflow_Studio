@@ -13,7 +13,15 @@ QualityPreset = Literal["fast", "balanced", "high", "ultra"]
 GenerationMode = Literal["portrait", "full_body", "lifestyle_post", "studio", "reference_match"]
 SeedStrategy = Literal["locked", "vary", "reuse_last"]
 VisibilityLevel = Literal["clear", "partial", "covered", "not_visible", "unclear"]
-DatasetPrepTarget = Literal["chest_detail", "upper_torso", "full_body_context"]
+DatasetPrepTarget = Literal[
+    "face_identity",
+    "chest_detail",
+    "butt_hips",
+    "genital_detail",
+    "legs_feet",
+    "upper_torso",
+    "full_body_context",
+]
 DatasetPrepScanMode = Literal["local", "claude", "off"]
 DatasetPrepJobState = Literal["queued", "running", "cancelling", "cancelled", "completed", "failed"]
 
@@ -142,6 +150,37 @@ class GenerationRequest(BaseModel):
     seed: int | None = None
     global_lora_files: list[str] | None = None
     lora_strength: float = Field(default=0.75, ge=0.0, le=1.2)
+
+
+class PromptEnhanceRequest(BaseModel):
+    character_id: str = ""
+    brief: str = Field(min_length=1, max_length=800)
+    mode: GenerationMode = "portrait"
+
+
+class PromptEnhanceResponse(BaseModel):
+    scene_prompt: str
+    body_detail_prompt: str = ""
+    extra_negative: str
+    summary: str
+
+
+class GenerationSettings(BaseModel):
+    checkpoint_name: str = Field(default="sdxl_base_1.0.safetensors", min_length=1, max_length=240)
+
+
+class GenerationPreflightItem(BaseModel):
+    id: str
+    label: str
+    ok: bool
+    detail: str
+
+
+class GenerationPreflightResponse(BaseModel):
+    ready: bool
+    settings: GenerationSettings
+    items: list[GenerationPreflightItem]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class PromptRecipe(BaseModel):

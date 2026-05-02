@@ -11,11 +11,15 @@ import type {
   GenerationJobResponse,
   GenerationJobStatus,
   GenerationOutputImage,
+  GenerationPreflightResponse,
   GenerationRequest,
+  GenerationSettings,
   GlobalLearningRequest,
   GlobalLearningResponse,
   ImageCountResponse,
   PathBrowserResponse,
+  PromptEnhanceRequest,
+  PromptEnhanceResponse,
   PromptRecipe,
   ReferenceAnalysisResponse,
   RuntimeStatus,
@@ -107,6 +111,22 @@ export const api = {
     }),
   previewGeneration: (payload: GenerationRequest) =>
     request<PromptRecipe>("/api/generate/preview", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  enhancePrompt: (payload: PromptEnhanceRequest) =>
+    request<PromptEnhanceResponse>("/api/generate/enhance-prompt", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  generationSettings: () => request<GenerationSettings>("/api/generate/settings"),
+  saveGenerationSettings: (settings: GenerationSettings) =>
+    request<GenerationSettings>("/api/generate/settings", {
+      method: "POST",
+      body: JSON.stringify(settings)
+    }),
+  generationPreflight: (payload: GenerationRequest) =>
+    request<GenerationPreflightResponse>("/api/generate/preflight", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

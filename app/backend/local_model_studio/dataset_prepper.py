@@ -287,6 +287,26 @@ def _crop_box_from_local_detections(
             return None, "Local AI scan found breasts but the crop was too broad or portrait-like; that image was skipped."
         return _normalized_box_to_pixels(crop_box, width, height), None
 
+    if target == "face_identity":
+        if face_box is not None:
+            return _normalized_box_to_pixels(_padded_region_crop([face_box], 0.55, 0.75), width, height), None
+        return _normalized_box_to_pixels(_fallback_normalized_crop(target), width, height), None
+
+    if target == "butt_hips":
+        boxes = _boxes_matching_labels(detections, width, height, ("BUTTOCK", "HIP", "ANUS"))
+        crop_box = _padded_region_crop(boxes, 0.34, 0.28) if boxes else _fallback_normalized_crop(target)
+        return _normalized_box_to_pixels(_avoid_face_overlap(crop_box, face_box), width, height), None
+
+    if target == "genital_detail":
+        boxes = _boxes_matching_labels(detections, width, height, ("GENITAL", "VULVA", "PENIS", "ANUS"))
+        crop_box = _padded_region_crop(boxes, 0.35, 0.32) if boxes else _fallback_normalized_crop(target)
+        return _normalized_box_to_pixels(_avoid_face_overlap(crop_box, face_box), width, height), None
+
+    if target == "legs_feet":
+        boxes = _boxes_matching_labels(detections, width, height, ("FOOT", "FEET", "LEG"))
+        crop_box = _padded_region_crop(boxes, 0.28, 0.22) if boxes else _fallback_normalized_crop(target)
+        return _normalized_box_to_pixels(_avoid_face_overlap(crop_box, face_box), width, height), None
+
     torso_boxes = [
         box
         for box in (_detection_box_to_normalized(detection, width, height) for detection in detections)
@@ -321,6 +341,25 @@ def _valid_breast_boxes(
         if box_width * box_height < 0.003:
             continue
         boxes.append(box)
+    return boxes
+
+
+def _boxes_matching_labels(
+    detections: list[LocalCropDetection],
+    width: int,
+    height: int,
+    label_terms: tuple[str, ...],
+) -> list[NormalizedBox]:
+    boxes: list[NormalizedBox] = []
+    for detection in detections:
+        if detection.score < 0.22:
+            continue
+        label = detection.label.upper()
+        if not any(term in label for term in label_terms):
+            continue
+        box = _detection_box_to_normalized(detection, width, height)
+        if box is not None:
+            boxes.append(box)
     return boxes
 
 
@@ -499,8 +538,16 @@ def _anthropic_error_message(response: httpx.Response) -> str:
 
 
 def _target_instruction(target: str) -> str:
+    if target == "face_identity":
+        return "face and identity crop; include face, hairline, jaw, and enough surrounding context for identity consistency"
     if target == "chest_detail":
         return "tight breast-only crop; include the full visible breast shape and visible nipples/areolas, exclude face/head/mouth/eyes and avoid full torso"
+    if target == "butt_hips":
+        return "buttocks and hip shape crop; include glutes, hips, waist transition, and pose context, exclude face"
+    if target == "genital_detail":
+        return "tight adult genital anatomy crop; include only clear visible target detail and nearby anatomy context, exclude face"
+    if target == "legs_feet":
+        return "legs and feet crop; include thighs, calves, ankles, feet, and pose context"
     if target == "upper_torso":
         return "upper torso region; shoulders/chest/waist context, avoid full face"
     return "full body context"
@@ -614,6 +661,31 @@ def _breast_region_crop(breast_boxes: list[NormalizedBox], face_box: NormalizedB
     return _avoid_face_overlap(crop, face_box)
 
 
+def _padded_region_crop(boxes: list[NormalizedBox], pad_x_ratio: float, pad_y_ratio: float) -> NormalizedBox:
+    left, top, right, bottom = _union_boxes(boxes)
+    width = right - left
+    height = bottom - top
+    pad_x = max(width * pad_x_ratio, 0.035)
+    pad_y = max(height * pad_y_ratio, 0.035)
+    return _clamp_normalized_box((left - pad_x, top - pad_y, right + pad_x, bottom + pad_y))
+
+
+def _fallback_normalized_crop(target: str) -> NormalizedBox:
+    if target == "face_identity":
+        return (0.22, 0.02, 0.78, 0.46)
+    if target == "butt_hips":
+        return (0.16, 0.38, 0.84, 0.82)
+    if target == "genital_detail":
+        return (0.24, 0.42, 0.76, 0.74)
+    if target == "legs_feet":
+        return (0.12, 0.42, 0.88, 1.0)
+    if target == "upper_torso":
+        return (0.12, 0.12, 0.88, 0.72)
+    if target == "full_body_context":
+        return (0.0, 0.0, 1.0, 1.0)
+    return (0.16, 0.18, 0.84, 0.62)
+
+
 def _tight_chest_crop(target_box: NormalizedBox, face_box: NormalizedBox | None) -> NormalizedBox:
     left, top, right, bottom = target_box
     width = right - left
@@ -694,6 +766,9 @@ def _face_guided_crop(width: int, height: int, face: FaceBox, target: str) -> Cr
     x, y, w, h = face
     center_x = x + w / 2
 
+    if target == "face_identity":
+        return _clamp_box((int(center_x - w * 1.6), int(y - h * 0.4), int(center_x + w * 1.6), int(y + h * 2.1)), width, height)
+
     if target == "full_body_context":
         return _clamp_box((int(center_x - w * 3.2), max(0, y - int(h * 0.2)), int(center_x + w * 3.2), height), width, height)
 
@@ -704,6 +779,15 @@ def _face_guided_crop(width: int, height: int, face: FaceBox, target: str) -> Cr
             height,
         )
 
+    if target == "butt_hips":
+        return _clamp_box((int(center_x - w * 3.0), int(y + h * 4.2), int(center_x + w * 3.0), int(y + h * 8.0)), width, height)
+
+    if target == "genital_detail":
+        return _clamp_box((int(center_x - w * 2.2), int(y + h * 4.0), int(center_x + w * 2.2), int(y + h * 6.8)), width, height)
+
+    if target == "legs_feet":
+        return _clamp_box((int(center_x - w * 3.0), int(y + h * 4.4), int(center_x + w * 3.0), height), width, height)
+
     return _clamp_box(
         (int(center_x - w * 2.1), int(y + h * 1.15), int(center_x + w * 2.1), int(y + h * 4.2)),
         width,
@@ -712,11 +796,7 @@ def _face_guided_crop(width: int, height: int, face: FaceBox, target: str) -> Cr
 
 
 def _fallback_crop(width: int, height: int, target: str) -> CropBox:
-    if target == "full_body_context":
-        return (0, 0, width, height)
-    if target == "upper_torso":
-        return _clamp_box((int(width * 0.12), int(height * 0.12), int(width * 0.88), int(height * 0.72)), width, height)
-    return _clamp_box((int(width * 0.16), int(height * 0.18), int(width * 0.84), int(height * 0.62)), width, height)
+    return _normalized_box_to_pixels(_fallback_normalized_crop(target), width, height)
 
 
 def _clamp_box(box: CropBox, width: int, height: int) -> CropBox:

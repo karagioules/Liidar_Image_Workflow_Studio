@@ -25,6 +25,10 @@ class FakeComfyClient:
         self.prompt_id = "prompt-123"
         self.history_payload: dict = {}
         self.queue_payload: dict = {"queue_running": [], "queue_pending": []}
+        self.available = True
+
+    def is_available(self) -> bool:
+        return self.available
 
     def queue_prompt(self, workflow: dict) -> str:
         self.queued_workflow = workflow
@@ -41,6 +45,9 @@ class FakeComfyClient:
 
 
 class FailingComfyClient:
+    def is_available(self) -> bool:
+        return True
+
     def queue_prompt(self, workflow: dict) -> str:
         raise RuntimeError("ComfyUI returned an invalid response.")
 
@@ -210,8 +217,103 @@ def test_generate_preview_returns_recipe_containing_scene_prompt(tmp_path: Path)
     assert response.json()["seed"] == 42
 
 
+def test_enhance_generation_prompt_expands_single_brief(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+    client.post(
+        "/api/characters",
+        json={
+            "id": "ari",
+            "display_name": "Ari",
+            "body_shape": "athletic natural build",
+            "chest": "natural chest shape",
+        },
+    )
+
+    response = client.post(
+        "/api/generate/enhance-prompt",
+        json={"character_id": "ari", "brief": "full body photo on a hotel balcony at sunset", "mode": "full_body"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "hotel balcony at sunset" in body["scene_prompt"]
+    assert "full body composition" in body["scene_prompt"]
+    assert "clear full-body framing" in body["scene_prompt"]
+    assert "athletic natural build" in body["body_detail_prompt"]
+    assert "distorted anatomy" in body["extra_negative"]
+    assert "body detail included" in body["summary"]
+
+
+def test_enhance_generation_prompt_works_without_saved_character(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/generate/enhance-prompt",
+        json={"brief": "portrait in soft window light", "mode": "portrait"},
+    )
+
+    assert response.status_code == 200
+    assert "portrait in soft window light" in response.json()["scene_prompt"]
+    assert response.json()["body_detail_prompt"] == ""
+
+
+def test_enhance_generation_prompt_structures_adult_pose_brief(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/generate/enhance-prompt",
+        json={
+            "brief": "soft natural light, believable still photo, nude, bending over the bed",
+            "mode": "portrait",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "tasteful adult nude pose" in body["scene_prompt"]
+    assert "bedroom setting" in body["scene_prompt"]
+    assert "bending over in a natural pose" in body["scene_prompt"]
+    assert body["scene_prompt"].count("soft natural light") == 1
+    assert "coherent torso and hip alignment" in body["body_detail_prompt"]
+    assert "broken spine" in body["extra_negative"]
+    assert "nude/adult pose" in body["summary"]
+
+
+def test_enhance_generation_prompt_uses_mirror_selfie_preset(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/generate/enhance-prompt",
+        json={"brief": "casual mirror selfie in bathroom with phone", "mode": "lifestyle_post"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "realistic mirror selfie" in body["scene_prompt"]
+    assert "visible phone-camera perspective" in body["scene_prompt"]
+    assert "impossible reflection" in body["extra_negative"]
+    assert "mirror selfie" in body["summary"]
+
+
+def test_enhance_generation_prompt_uses_mode_preset_without_keywords(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    response = client.post(
+        "/api/generate/enhance-prompt",
+        json={"brief": "simple clean portrait with confident expression", "mode": "studio"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "controlled studio setup" in body["scene_prompt"]
+    assert "professional portrait lens" in body["scene_prompt"]
+    assert "studio portrait" in body["summary"]
+
+
 def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path) -> None:
     comfy = FakeComfyClient()
+    (tmp_path / "ComfyUI" / "models" / "checkpoints").mkdir(parents=True)
+    (tmp_path / "ComfyUI" / "models" / "checkpoints" / "sdxl_base_1.0.safetensors").write_bytes(b"fake")
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=comfy))
     client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
 
@@ -225,6 +327,32 @@ def test_generate_route_with_fake_comfy_client_returns_prompt_id(tmp_path: Path)
     assert response.json()["recipe"]["seed"] == 7
     assert comfy.queued_workflow is not None
     assert comfy.queued_workflow["4"]["inputs"]["ckpt_name"] == "sdxl_base_1.0.safetensors"
+
+
+def test_generate_preflight_reports_missing_comfy_and_checkpoint(tmp_path: Path) -> None:
+    comfy = FakeComfyClient()
+    comfy.available = False
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=comfy))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+
+    response = client.post("/api/generate/preflight", json={"character_id": "ari", "seed": 7})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert {item["id"]: item["ok"] for item in body["items"]}["comfyui"] is False
+    assert {item["id"]: item["ok"] for item in body["items"]}["checkpoint"] is False
+
+
+def test_generation_settings_route_persists_checkpoint_name(tmp_path: Path) -> None:
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path)))
+
+    saved = client.post("/api/generate/settings", json={"checkpoint_name": "real-amd-model.safetensors"})
+    loaded = client.get("/api/generate/settings")
+
+    assert saved.status_code == 200
+    assert loaded.status_code == 200
+    assert loaded.json()["checkpoint_name"] == "real-amd-model.safetensors"
 
 
 def test_generation_status_reports_pending_running_and_completed_images(tmp_path: Path) -> None:
@@ -274,6 +402,8 @@ def test_generated_image_endpoint_proxies_comfy_view(tmp_path: Path) -> None:
 
 def test_completed_global_pack_is_added_to_future_generation(tmp_path: Path) -> None:
     comfy = FakeComfyClient()
+    (tmp_path / "ComfyUI" / "models" / "checkpoints").mkdir(parents=True)
+    (tmp_path / "ComfyUI" / "models" / "checkpoints" / "sdxl_base_1.0.safetensors").write_bytes(b"fake")
     accepted_dir = tmp_path / "datasets" / "accepted"
     accepted_dir.mkdir(parents=True)
     lora_path = tmp_path / "outputs" / "global_body_pack.safetensors"
@@ -298,8 +428,8 @@ def test_completed_global_pack_is_added_to_future_generation(tmp_path: Path) -> 
     ).json()
     client.post(f"/api/training/{job['job_id']}/register-lora", json={"lora_path": str(lora_path)})
 
-    preview = client.post("/api/generate/preview", json={"character_id": "ari", "seed": 12})
-    generated = client.post("/api/generate", json={"character_id": "ari", "seed": 12})
+    preview = client.post("/api/generate/preview", json={"character_id": "ari", "scene_prompt": "realistic full body photo", "seed": 12})
+    generated = client.post("/api/generate", json={"character_id": "ari", "scene_prompt": "realistic full body photo", "seed": 12})
 
     assert preview.status_code == 200
     assert preview.json()["lora_files"] == [str(lora_path)]
@@ -310,7 +440,61 @@ def test_completed_global_pack_is_added_to_future_generation(tmp_path: Path) -> 
     assert comfy.queued_workflow["3"]["inputs"]["model"] == ["21", 0]
 
 
+def test_automatic_generation_routes_only_relevant_global_packs(tmp_path: Path) -> None:
+    accepted_dir = tmp_path / "datasets" / "accepted"
+    accepted_dir.mkdir(parents=True)
+    body_lora = tmp_path / "outputs" / "body_detail_pack.safetensors"
+    style_lora = tmp_path / "outputs" / "unrelated_film_style.safetensors"
+    body_lora.parent.mkdir()
+    body_lora.write_bytes(b"body")
+    style_lora.write_bytes(b"style")
+    client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FakeComfyClient()))
+    client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
+    body_job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "body",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(body_lora.parent),
+                "base_model_path": "base.safetensors",
+                "lora_name": "body_detail_pack",
+                "dataset_type": "body_shape",
+                "global_pack": True,
+            },
+            "accepted_image_count": 4,
+        },
+    ).json()
+    style_job = client.post(
+        "/api/training/config",
+        json={
+            "request": {
+                "dataset_id": "style",
+                "dataset_path": str(accepted_dir),
+                "output_dir": str(style_lora.parent),
+                "base_model_path": "base.safetensors",
+                "lora_name": "unrelated_film_style",
+                "dataset_type": "style",
+                "global_pack": True,
+            },
+            "accepted_image_count": 4,
+        },
+    ).json()
+    client.post(f"/api/training/{body_job['job_id']}/register-lora", json={"lora_path": str(body_lora)})
+    client.post(f"/api/training/{style_job['job_id']}/register-lora", json={"lora_path": str(style_lora)})
+
+    body_preview = client.post("/api/generate/preview", json={"character_id": "ari", "scene_prompt": "nude full body bedroom photo"})
+    plain_preview = client.post("/api/generate/preview", json={"character_id": "ari", "scene_prompt": "simple passport headshot"})
+
+    assert body_preview.status_code == 200
+    assert body_preview.json()["lora_files"] == [str(body_lora)]
+    assert plain_preview.status_code == 200
+    assert plain_preview.json()["lora_files"] == []
+
+
 def test_generate_route_returns_503_for_comfy_runtime_error(tmp_path: Path) -> None:
+    (tmp_path / "ComfyUI" / "models" / "checkpoints").mkdir(parents=True)
+    (tmp_path / "ComfyUI" / "models" / "checkpoints" / "sdxl_base_1.0.safetensors").write_bytes(b"fake")
     client = TestClient(create_app(paths=WorkspacePaths(tmp_path), comfy_client=FailingComfyClient()))
     client.post("/api/characters", json={"id": "ari", "display_name": "Ari"})
 
