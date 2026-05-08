@@ -1,4 +1,4 @@
-# Liidar
+# Liidar Image Workflow Studio
 
 Liidar is a local-first AI image workflow studio for organizing repeatable image generation workflows through a local ComfyUI setup. It helps users manage profiles, prompt recipes, local training helpers, generation jobs, output metadata, and runtime checks without relying on hosted token-based services.
 
