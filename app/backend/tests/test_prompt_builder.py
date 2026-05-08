@@ -4,7 +4,7 @@ from local_model_studio.schemas import CharacterProfile, GenerationRequest
 
 def profile() -> CharacterProfile:
     return CharacterProfile(
-        display_name="Marianna",
+        display_name="Sample Profile",
         age_category="adult_25_plus",
         face_summary="consistent soft face, green eyes",
         hair="wavy black hair",
@@ -25,7 +25,7 @@ def test_builds_locked_identity_prompt() -> None:
         GenerationRequest(character_id="abc", mode="lifestyle_post", scene_prompt="sunlit balcony selfie"),
     )
 
-    assert "Marianna" not in recipe.positive
+    assert "Sample Profile" not in recipe.positive
     assert "consistent soft face" in recipe.positive
     assert "small natural chest" in recipe.positive
     assert "sunlit balcony selfie" in recipe.positive

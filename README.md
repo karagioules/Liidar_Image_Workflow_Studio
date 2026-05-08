@@ -1,47 +1,51 @@
 # Liidar
 
-Liidar is a local body-sculpture studio for preparing adult character references, training reusable local LoRA packs, and generating finished still images through ComfyUI.
+Liidar is a local-first AI image workflow studio for organizing repeatable image generation workflows through a local ComfyUI setup. It helps users manage profiles, prompt recipes, local training helpers, generation jobs, output metadata, and runtime checks without relying on hosted token-based services.
 
-The app is built for a local AMD workflow: lightweight development can happen on any machine, while real generation and training should be tested on the AMD GPU machine with ComfyUI installed.
+The project is MIT-licensed and intended as a general-purpose starting point that others can fork, modify, and adapt for their own lawful local workflows.
+
+## What This Project Is
+
+- A local workflow manager for AI image generation.
+- A React/Vite frontend plus FastAPI backend.
+- A ComfyUI-oriented job and workflow helper.
+- A place to manage profile schemas, prompt recipes, workflow templates, training metadata, and output review.
+- A source-code project, not a bundled model, dataset, or media pack.
+
+## What This Project Is Not
+
+- It is not a model-weight repository.
+- It is not a dataset repository.
+- It is not a generated-image pack.
+- It is not a service for impersonating real people or bypassing consent requirements.
 
 ## Current State
 
-Liidar currently focuses on three simple modules:
+Liidar currently includes:
 
-- **Characters**: create character blueprints from adult reference images.
-- **Generate**: write one image brief, enhance it locally, preview the final recipe, and queue it to ComfyUI.
-- **Training**: prepare cropped reference images, name a sculpture pack, and launch high-quality local training.
+- React/Vite frontend at `http://127.0.0.1:5274`.
+- FastAPI backend at `http://127.0.0.1:8000`.
+- Runtime and live system monitoring.
+- Profile creation and local reference analysis.
+- Single-brief local prompt enhancement.
+- ComfyUI generation preview, preflight, queueing, and output tracking.
+- Dataset preparation and local training workflow helpers.
+- Training run launch, polling, cancellation, and log tail support.
+- Frontend and backend test coverage for the current workflow.
 
-Runtime status, system metrics, and activity logs live in the app shell instead of a separate tab. The app auto-refreshes backend state in the background.
+## Runtime Requirements
 
-## What Works Now
+This repo does not include ComfyUI, checkpoints, adapters, model files, generated outputs, datasets, logs, or secrets.
 
-- React/Vite frontend at `http://127.0.0.1:5274`
-- FastAPI backend at `http://127.0.0.1:8000`
-- Runtime and live system monitoring
-- Character blueprint creation and local reference analysis
-- Single-brief local prompt enhancement
-- ComfyUI generation preview, preflight, queueing, and output tracking
-- Smart LoRA pack routing from active trained packs
-- Merged dataset prep and training workflow
-- Local crop preparation for face, chest, butt/hips, genital detail, legs/feet, and full body context
-- High-quality training configuration defaults
-- Training run launch, polling, cancellation, and log tail support
-- Frontend and backend test coverage for the current workflow
+For full generation and training tests, the local machine should provide:
 
-## AMD / ComfyUI Requirement
+- `ComfyUI/` in the project root.
+- A working ComfyUI Python environment.
+- Compatible checkpoint files under the local ComfyUI model folders.
+- Optional trained adapter files under the local ComfyUI adapter folders or registered absolute paths.
+- GPU drivers and the correct PyTorch backend for the machine.
 
-This repo does not include ComfyUI, checkpoints, LoRA weights, model files, generated outputs, datasets, logs, or secrets.
-
-For full generation and training tests, the AMD machine should provide:
-
-- `ComfyUI/` in the project root
-- a working ComfyUI Python environment
-- SDXL checkpoint files under `ComfyUI/models/checkpoints`
-- trained LoRA files under `ComfyUI/models/loras` or registered absolute paths
-- AMD GPU drivers and the correct PyTorch/ROCm or DirectML setup for that machine
-
-On non-AMD or non-ComfyUI machines, the app can still be developed and UI-tested, but generation preflight will report missing ComfyUI/checkpoint readiness.
+On machines without ComfyUI or a compatible GPU runtime, the app can still be developed and UI-tested, but generation preflight will report missing runtime or model readiness.
 
 ## Start The App
 
@@ -54,8 +58,8 @@ Use the project launcher:
 The launcher starts:
 
 - ComfyUI on `http://127.0.0.1:8188`
-- backend on `http://127.0.0.1:8000`
-- frontend on `http://127.0.0.1:5274`
+- Backend on `http://127.0.0.1:8000`
+- Frontend on `http://127.0.0.1:5274`
 
 If ComfyUI is not installed, start the backend and frontend manually for development:
 
@@ -86,27 +90,18 @@ npm test
 npm run build
 ```
 
-Current verified state:
-
-- backend tests: `122 passed`
-- frontend smoke tests: `5 passed`
-- frontend production build: passing
-
 ## Repository Hygiene
 
-The following are intentionally ignored:
+Public releases should not include:
 
-- model weights and checkpoints
-- ComfyUI installation
-- generated outputs
-- datasets and prepared crops
-- training runs and logs
-- secrets and saved character JSON files
-- Python virtual environments
-- frontend `node_modules` and build output
+- Generated images or output media.
+- Training datasets or prepared local crops.
+- Model weights, checkpoints, adapters, or other binary model artifacts.
+- Private prompt sets, personal reference files, logs, credentials, or cloud endpoints.
+- Temporary local worktree/cache folders.
 
-This keeps the GitHub repository focused on source code, configuration templates, tests, and documentation.
+The repository is intended to contain source code, tests, configuration templates, and documentation only.
 
-## Version Tag
+## License
 
-The current progress tag documents the simplified studio workflow: merged Training page, one-brief Generate flow, character blueprints, live runtime monitoring, local prompt enhancement, smart pack routing, and verified test/build readiness.
+MIT. See [LICENSE](LICENSE).

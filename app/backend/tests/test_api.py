@@ -518,7 +518,7 @@ def test_missing_character_preview_and_generate_return_404(tmp_path: Path) -> No
 
 
 def test_file_browser_lists_folders_and_supported_images(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     (source / "Nested").mkdir()
     Image.new("RGB", (8, 8), color="blue").save(source / "sozee.png")
@@ -538,7 +538,7 @@ def test_file_browser_lists_folders_and_supported_images(tmp_path: Path) -> None
 
 
 def test_file_browser_serves_image_thumbnail(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     reference = source / "sozee.png"
     Image.new("RGB", (800, 1200), color="blue").save(reference)
@@ -1004,7 +1004,7 @@ def test_select_folder_uses_native_picker_result(tmp_path: Path, monkeypatch) ->
 
 
 def test_analyze_references_returns_character_draft_from_local_images(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     reference = source / "portrait.png"
     Image.new("RGB", (800, 1200), color=(235, 225, 210)).save(reference)
@@ -1013,7 +1013,7 @@ def test_analyze_references_returns_character_draft_from_local_images(tmp_path: 
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
+            "id": "sample_profile",
             "display_name": "",
             "age_category": "adult_25_plus",
             "reference_images": [str(reference)],
@@ -1025,7 +1025,7 @@ def test_analyze_references_returns_character_draft_from_local_images(tmp_path: 
 
     assert response.status_code == 200
     body = response.json()
-    assert body["display_name"] == "Marianna"
+    assert body["display_name"] == "Sample Profile"
     assert "offline image analysis" in body["face_summary"]
     assert "portrait-oriented" in body["style_notes"]
     assert "warm" in body["skin_tone"]
@@ -1036,7 +1036,7 @@ def test_analyze_references_returns_character_draft_from_local_images(tmp_path: 
 
 
 def test_analyze_references_includes_local_vision_caption_when_available(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     reference = source / "portrait.png"
     Image.new("RGB", (800, 1200), color=(235, 225, 210)).save(reference)
@@ -1047,7 +1047,7 @@ def test_analyze_references_includes_local_vision_caption_when_available(tmp_pat
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
+            "id": "sample_profile",
             "display_name": "",
             "age_category": "adult_25_plus",
             "reference_images": [str(reference)],
@@ -1066,7 +1066,7 @@ def test_analyze_references_includes_local_vision_caption_when_available(tmp_pat
 
 
 def test_analyze_references_adds_body_attribute_cues_from_caption(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     reference = source / "beach.png"
     Image.new("RGB", (880, 1168), color=(225, 205, 188)).save(reference)
@@ -1077,7 +1077,7 @@ def test_analyze_references_adds_body_attribute_cues_from_caption(tmp_path: Path
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
+            "id": "sample_profile",
             "display_name": "",
             "age_category": "adult_25_plus",
             "reference_images": [str(reference)],
@@ -1098,7 +1098,7 @@ def test_analyze_references_adds_body_attribute_cues_from_caption(tmp_path: Path
 
 
 def test_analyze_references_returns_full_reference_intelligence_profile(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     front = source / "front.png"
     back = source / "back.png"
@@ -1114,7 +1114,7 @@ def test_analyze_references_returns_full_reference_intelligence_profile(tmp_path
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
+            "id": "sample_profile",
             "display_name": "",
             "age_category": "adult_25_plus",
             "reference_images": [str(front), str(back)],
@@ -1143,11 +1143,11 @@ def test_analyze_references_returns_full_reference_intelligence_profile(tmp_path
 
 
 def test_analyze_references_treats_large_varied_pack_as_usable(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     references = []
     for index in range(8):
-        reference = source / f"marianna-{index}.png"
+        reference = source / f"sample_profile-{index}.png"
         size = (900, 1400) if index % 2 == 0 else (1400, 900)
         Image.new("RGB", size, color=(226, 202, 184)).save(reference)
         references.append(reference)
@@ -1182,8 +1182,8 @@ def test_analyze_references_treats_large_varied_pack_as_usable(tmp_path: Path) -
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
-            "display_name": "Marianna",
+            "id": "sample_profile",
+            "display_name": "Sample Profile",
             "age_category": "adult_25_plus",
             "reference_images": [str(reference) for reference in references],
             "lora_files": [],
@@ -1294,7 +1294,7 @@ def test_local_tagger_prefers_directml_provider_when_available() -> None:
 
 
 def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(tmp_path: Path) -> None:
-    source = tmp_path / "Models" / "Marianna"
+    source = tmp_path / "Models" / "Sample Profile"
     source.mkdir(parents=True)
     references = []
     for index in range(4):
@@ -1309,7 +1309,7 @@ def test_analyze_references_keeps_generated_profile_fields_within_schema_limits(
     response = client.post(
         "/api/characters/analyze-references",
         json={
-            "id": "marianna",
+            "id": "sample_profile",
             "display_name": "",
             "age_category": "adult_25_plus",
             "reference_images": [str(reference) for reference in references],
