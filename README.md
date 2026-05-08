@@ -1,9 +1,18 @@
-# Liidar Image Workflow Studio
+<h1 align="center">Liidar Image Workflow Studio</h1>
 
-Liidar is a local-first AI image workflow studio for organizing repeatable image generation workflows through a local ComfyUI setup. It helps users manage profiles, prompt recipes, local training helpers, generation jobs, output metadata, and runtime checks without relying on hosted token-based services.
+<p align="center">
+  <strong>Local AMD-first model studio for dataset prep, character analysis, generation, and LoRA training.</strong><br>
+  <em>ComfyUI-oriented workflow management, prompt recipes, local training helpers, runtime checks, and output review without hosted token-based services.</em>
+</p>
 
-The project is MIT-licensed and intended as a general-purpose starting point that others can fork, modify, and adapt for their own lawful local workflows.
-
+<p align="center">
+  <a href="#what-this-project-is">What It Is</a> •
+  <a href="#runtime-requirements">Runtime</a> •
+  <a href="#start-the-app">Start</a> •
+  <a href="#verification">Verification</a> •
+  <a href="#repository-hygiene">Hygiene</a> •
+  <a href="#license">License</a>
+</p>
 ## What This Project Is
 
 - A local workflow manager for AI image generation.
