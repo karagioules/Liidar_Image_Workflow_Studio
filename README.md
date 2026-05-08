@@ -13,6 +13,7 @@
   <a href="#repository-hygiene">Hygiene</a> •
   <a href="#license">License</a>
 </p>
+
 ## What This Project Is
 
 - A local workflow manager for AI image generation.
