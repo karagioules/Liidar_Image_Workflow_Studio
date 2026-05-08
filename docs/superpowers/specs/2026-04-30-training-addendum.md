@@ -1,106 +1,79 @@
-# Training Addendum: Body and Style LoRAs Without Face Cloning
+# Training Addendum: Dataset-Safe Local Adapters
 
 ## Goal
 
-Local Model Studio must let the user provide folders containing many consented adult reference photos for generic body-part, body-shape, pose, style, wardrobe, lighting, or composition learning. The app should use these datasets as generic visual knowledge and must not train or preserve a real person's face identity.
+Liidar may eventually support local training helper workflows for user-supplied datasets. The public repository must not include datasets, generated images, private prompts, model weights, or trained adapters.
 
-Examples include datasets for natural chest shapes, petite body proportions, grooming styles, posing, lighting, or niche creator-content aesthetics. These datasets should produce reusable body/style LoRAs or training artifacts that can be applied to fictional adult characters.
+Training support should create reproducible configuration files and metadata while keeping user data outside git-tracked paths.
 
-## Non-Negotiable Face Policy
+## Dataset Safety Policy
 
-Training must default to **no face cloning**.
+Training imports should default to conservative behavior:
 
-The dataset pipeline will:
-
-- Scan imported folders recursively for supported image files.
-- Hash files and deduplicate repeated images.
-- Detect likely faces before an image is accepted.
-- Reject face-containing images by default.
-- Allow optional blur/crop redaction only when the redacted output contains no detectable face.
-- Store accepted training images separately from rejected images.
-- Store rejection reasons in metadata.
-- Generate captions that describe generic traits and never a named real identity.
-
-If face detection is unavailable, the pipeline should fail closed for training imports that are not explicitly marked as body-part crops.
+- Require the user to confirm they have rights to use the data.
+- Store source data outside the repository by default.
+- Deduplicate files by hash.
+- Reject unsupported file types.
+- Record accepted/rejected counts.
+- Avoid preserving real-person identity unless a future contributor implements an explicit consent and rights workflow.
+- Never commit imported datasets or generated training outputs.
 
 ## Dataset Types
 
-Initial dataset types:
+Initial generic dataset types:
 
-- **body_part**
-  Cropped or face-free body-part reference data.
+- Style.
+- Composition.
+- Object/product.
+- Pose.
+- Lighting.
+- Texture/material.
 
-- **body_shape**
-  Face-free full or partial body silhouettes/proportions.
-
-- **pose**
-  Pose/composition references where face identity is irrelevant or absent.
-
-- **style**
-  Lighting, wardrobe, camera, or creator-content aesthetic references.
-
-Each dataset stores:
+Each dataset record stores:
 
 - Name.
-- Dataset type.
+- Type.
 - Source folder path.
 - Accepted file count.
 - Rejected file count.
 - Duplicate count.
-- Face-policy mode.
-- Captions/tags.
+- Caption/tag strategy.
 - Created timestamp.
 
 ## Training Strategy
 
-Training should target reusable local LoRAs rather than persona clones.
+V1 should generate configs for external trainers rather than hard-code a full trainer stack.
 
-V1 will support:
-
-- Dataset scan/import.
-- Face-safe accepted dataset folder.
-- Caption file generation.
-- Training configuration generation for an SDXL LoRA workflow.
-- A local trainer adapter that can run a configured trainer command when the trainer is installed.
-- Training status metadata and output LoRA registration.
-
-Because AMD Windows LoRA training support is less mature than image generation, the app must clearly show trainer readiness:
+The app should report trainer readiness:
 
 - Python/runtime available.
-- ROCm/PyTorch available.
-- Trainer folder available.
+- GPU backend available.
+- Trainer folder configured.
 - Base model path configured.
 - Output folder writable.
 
-The app may support more than one trainer backend, but V1 should start with an external-trainer adapter that can invoke a local command without hard-coding the entire training ecosystem into the app.
+If a trainer is unavailable, the app should fail clearly before launching work.
 
 ## UI Requirements
 
-Add a **Training** area:
+Add a **Training** area only after generation and metadata workflows are stable:
 
 1. Choose dataset folder.
 2. Choose dataset type.
-3. Choose face policy: Reject faces (default), Blur/crop faces, or Body-part crops only.
-4. Scan dataset.
-5. Review accepted/rejected counts.
-6. Generate captions.
+3. Scan dataset.
+4. Review accepted/rejected counts.
+5. Generate captions/tags.
+6. Generate trainer config.
 7. Start local training when backend checks pass.
-8. Register produced LoRA for use in character profiles and generation presets.
-
-Normal users should see simple controls. Advanced trainer command/config details can be shown in an advanced panel.
-
-## Safety and Consent
-
-The app should label all training imports as requiring consent/rights to use the images. It should not contain any workflow designed to identify, preserve, or replicate a real person's face. Character face identity remains fictional and is controlled through profile prompts, seeds, references that the user has rights to use, and later fictional-character LoRAs if created from synthetic/owned images.
+8. Register produced adapter for use in profiles.
 
 ## Verification
 
-Training module verification must include:
+Training helper verification must include:
 
 - Recursive image scan.
 - Hash deduplication.
-- Unsupported file ignored.
-- Face-containing image rejected when detection is available.
-- Captions contain generic body/style tags and no identity names.
-- Training config includes dataset path, output path, base model path, LoRA name, resolution, repeats, batch size, and epoch/step settings.
-- Trainer status reports missing backend clearly instead of failing silently.
+- Unsupported file handling.
+- Captions contain generic tags and no private identity names.
+- Generated config includes dataset path, output path, base model path, adapter name, resolution, repeats, batch size, and step settings.
+- Missing backend is reported clearly.
